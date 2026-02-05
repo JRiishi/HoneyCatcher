@@ -3,7 +3,7 @@ import { Send, Loader, AlertCircle, CheckCircle, Brain, Shield, Database } from 
 import Navbar from '../components/Navbar';
 import GlassCard from '../components/GlassCard';
 import { simulateScamMessage, fetchSession } from '../services/api';
-import { cn } from '../lib/utils';
+import { cn } from '@/lib/utils.js';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const Playground = () => {

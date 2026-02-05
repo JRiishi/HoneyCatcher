@@ -1,11 +1,11 @@
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: '/api',
-    timeout: 10000,
+    baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
+    timeout: 15000,
     headers: {
         'Content-Type': 'application/json',
-        'x-api-key': 'unsafe-secret-key-change-me' // In prod, use env var
+        'x-api-key': import.meta.env.VITE_API_SECRET_KEY || 'unsafe-secret-key-change-me'
     }
 });
 

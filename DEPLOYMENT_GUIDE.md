@@ -31,14 +31,26 @@ GUVI_CALLBACK_URL=https://hackathon.guvi.in/api/updateHoneyPotFinalResult
 3.  Railway automatically detects the `requirements.txt` and starts the FastAPI server.
 4.  Ensure the port is set to `8000` or `10000` in the service settings.
 
-## 4. Testing Your Deployment
+## 4. Option C: Frontend Deployment via Render (Static Site)
 
-Once deployed, you will get a URL like `https://honey-badger-api.onrender.com`.
+1.  **Create New Static Site**: Connect your GitHub repo.
+2.  **Root Directory**: `honeypot/frontend`
+3.  **Build Command**: `npm install && npm run build`
+4.  **Publish Directory**: `dist`
+5.  **Environment Variables**: Add these in the "Environment" tab:
+    *   `VITE_API_BASE_URL`: `https://honeycatcher.onrender.com/api`
+    *   `VITE_API_SECRET_KEY`: `YOUR_SECRET_API_KEY` (Must match backend)
+
+## 5. Testing Your Deployment
+
+Once deployed, you will get two URLs:
+- **Backend**: `https://honeycatcher.onrender.com`
+- **Frontend**: `https://honey-catcher-frontend.onrender.com`
 
 ### Test Request (Start of Conversation)
-Use Postman or Curl to send this precisely:
+Use Postman or Curl to send this precisely to your **Backend**:
 
-**URL**: `https://your-api-url.com/api/message`  
+**URL**: `https://honeycatcher.onrender.com/api/message`  
 **Headers**:
 - `x-api-key`: `YOUR_SECRET_API_KEY`
 - `Content-Type`: `application/json`
@@ -69,12 +81,12 @@ Use Postman or Curl to send this precisely:
 }
 ```
 
-## 5. Evaluation Workflow
+## 6. Evaluation Workflow
 - The platform will send requests to your `/api/message` endpoint.
 - Your system will automatically engage and extract intel.
 - **IMPORTANT**: My code will automatically trigger the `POST` to GUVI's evaluation endpoint once 5 messages have been exchanged. You can monitor this in your server logs.
 
 ---
 **Status**: DEPLOYMENT READY 🚀
-**Endpoint**: `/api/message`
+**Backend**: `https://honeycatcher.onrender.com`
 **Format**: 100% GUVI Compliant
