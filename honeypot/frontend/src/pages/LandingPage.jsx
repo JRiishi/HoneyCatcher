@@ -119,7 +119,7 @@ const LandingPage = () => {
                     <a href="#features" className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 hover:text-emerald-400 transition-colors">Tactical Edge</a>
                     <a href="#intel" className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 hover:text-emerald-400 transition-colors">Intelligence</a>
                     <button
-                        onClick={() => navigate('/voice')}
+                        onClick={() => navigate('/dashboard')}
                         className="px-6 py-2.5 bg-emerald-600/10 border border-emerald-500/30 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all duration-300"
                     >
                         Terminal Login
@@ -162,7 +162,7 @@ const LandingPage = () => {
                     </p>
                     <div className="flex flex-col md:flex-row items-center justify-center gap-6">
                         <button
-                            onClick={() => navigate('/voice')}
+                            onClick={() => navigate('/dashboard')}
                             className="group relative px-10 py-5 bg-emerald-600 rounded-2xl overflow-hidden transition-all duration-500 hover:bg-emerald-500 hover:scale-105"
                         >
                             <div className="absolute inset-0 bg-gradient-to-r from-emerald-400/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
@@ -274,7 +274,7 @@ const LandingPage = () => {
                                 Every interaction is parsed for actionable data. Bank branches, UPI handles, and payment links are extracted, validated, and reported to relevant authorities automatically.
                             </p>
                             <button
-                                onClick={() => navigate('/voice')}
+                                onClick={() => navigate('/dashboard')}
                                 className="px-10 py-5 border-[2px] border-emerald-500 rounded-2xl text-sm font-black uppercase tracking-widest text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all duration-500 shadow-[0_0_30px_rgba(16,185,129,0.2)]"
                             >
                                 Access Intel Terminal
@@ -334,7 +334,7 @@ const LandingPage = () => {
                     <h2 className="text-6xl md:text-8xl font-black tracking-tighter italic uppercase mb-10 leading-none">READY TO DEPLOY <br /> <span className="text-emerald-500">THE BADGER?</span></h2>
                     <p className="text-xl text-slate-400 mb-12 max-w-xl mx-auto">Join the decentralized defense network and turn every scam call into a tactical failure.</p>
                     <button
-                        onClick={() => navigate('/voice')}
+                        onClick={() => navigate('/dashboard')}
                         className="group relative px-12 py-6 bg-emerald-600 rounded-[2rem] overflow-hidden transition-all duration-500 hover:bg-emerald-500 hover:scale-110 shadow-[0_0_50px_rgba(16,185,129,0.3)] hover:shadow-[0_0_70px_rgba(16,185,129,0.5)]"
                     >
                         <div className="relative flex items-center gap-4">

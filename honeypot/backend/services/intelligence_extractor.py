@@ -19,28 +19,42 @@ class IntelligenceExtractor:
         else:
             self.llm = None
     
-    async def extract(self, session_id: str, message: str):
+    async def extract(self, session_id: str, message: str, history: List[Dict] = None):
         """
         Extracts entities from the message and updates the session intelligence.
         """
-        # 1. Regex Extraction
+        # 1. Regex Extraction (Initial pass)
         extracted = self._regex_extract(message)
         
-        # 2. LLM Extraction (if key exists)
+        # 2. LLM Extraction (The "Brain" - resolves overlap/ambiguity)
         if self.llm:
             try:
+                context = ""
+                if history:
+                    context = "Conversation history for context:\n" + "\n".join([f"{m['role']}: {m['content']}" for m in history[-5:]])
+                
                 prompt = ChatPromptTemplate.from_template(
-                    "Extract scam intelligence from this message: '{text}'\n"
-                    "Return JSON with keys: bank_accounts, upi_ids, phone_numbers, urls, scam_keywords, behavioral_tactics. "
-                    "Lists of strings. Empty list if none."
+                    "You are a Forensic Intelligence Analyst for a High-Tech Honeypot. \n"
+                    "Your task is to extract actionable scam intelligence from the latest message while avoiding false positives.\n\n"
+                    "{context}\n\n"
+                    "LATEST MESSAGE: '{text}'\n\n"
+                    "STRICT INSTRUCTIONS:\n"
+                    "1. bank_accounts: Usually 9-18 digits. Often mentioned with bank names or 'send here'.\n"
+                    "2. phone_numbers: STRICTLY 10 digits for India/Local. If a number is 10 digits, it is likely a phone number UNLESS context strongly implies otherwise.\n"
+                    "3. upi_ids: Format like 'name@bank' or 'mobile@upi'.\n"
+                    "4. urls: Phishing or suspicious links.\n"
+                    "5. scam_keywords: Urgent terms like 'blocked', 'suspended', 'verify', 'KYC', 'lottery'.\n"
+                    "6. behavioral_tactics: Urgency, Authority, Sympathy, Fear.\n\n"
+                    "Return ONLY valid JSON with these keys: bank_accounts, upi_ids, phone_numbers, urls, scam_keywords, behavioral_tactics. "
+                    "Use lists of strings. Empty lists if none detected."
                 )
                 chain = prompt | self.llm | JsonOutputParser()
-                llm_result = await chain.ainvoke({"text": message})
+                llm_result = await chain.ainvoke({"text": message, "context": context})
                 
-                # Merge LLM results
-                for key in extracted:
+                # Merge LLM results (LLM takes precedence for disambiguating 10-digit numbers)
+                for key in ["bank_accounts", "upi_ids", "phone_numbers", "urls", "scam_keywords", "behavioral_tactics"]:
                     if key in llm_result and isinstance(llm_result[key], list):
-                        extracted[key].extend(llm_result[key])
+                        extracted[key].extend([str(item) for item in llm_result[key]])
             except Exception as e:
                 logger.error(f"LLM Extraction failed: {e}")
 
@@ -77,8 +91,8 @@ class IntelligenceExtractor:
         patterns = {
             "urls": r"https?://\S+",
             "upi_ids": r"[\w\.\-_]+@[\w]+",
-            "phone_numbers": r"\b\d{10}\b",
-            "bank_accounts": r"\b\d{9,18}\b"  # Generic account number
+            "phone_numbers": r"\b[6-9]\d{9}\b",  # India specific mobile starts with 6-9
+            "bank_accounts": r"\b\d{11,18}\b"   # Most bank accounts are longer than 10 digits
         }
         
         for key, pat in patterns.items():

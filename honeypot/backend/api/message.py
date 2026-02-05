@@ -29,18 +29,17 @@ class MessageInput(BaseModel):
 
 class MessageResponse(BaseModel):
     status: str
-    action: str
     reply: Optional[str] = None
-    sessionId: str
+    # We hide sessionId and action to match the GUVI required output format perfectly
 
-async def process_background_tasks(session_id: str, message_content: str):
+async def process_background_tasks(session_id: str, message_content: str, history: List[dict] = None):
     """
     Background task: Intelligence Extraction & Lifecycle Management.
     """
-    # 1. Extract Intelligence
-    await extraction_service.extract(session_id, message_content)
+    # 1. Extract Intelligence with History Context
+    await extraction_service.extract(session_id, message_content, history)
     
-    # 2. Check Lifecycle (Termination)
+    # 2. Check Lifecycle (Termination & Evaluation Callback)
     await lifecycle_manager.check_termination(session_id)
 
 @router.post("/message", response_model=MessageResponse)
@@ -124,13 +123,25 @@ async def receive_message(
         action_taken = "monitoring"
 
         if is_confirmed_scam:
-            action_taken = "engaged"
-            
             # Add current message to history for the agent
             full_history = formatted_history + [{"role": "scammer", "content": incoming_text}]
             
-            # Run Agent Graph
-            agent_reply = await agent_system.run(full_history)
+            # Run Agent Graph (Returns dict now)
+            agent_result = await agent_system.run(full_history)
+            agent_reply = agent_result["reply"]
+            
+            # Update Agent State in DB
+            await db.sessions.update_one(
+                {"session_id": session_id},
+                {
+                    "$set": {
+                        "agent_state.turn_count": session.agent_state.turn_count + 1,
+                        "agent_state.sentiment": agent_result.get("emotion", "neutral"),
+                        "agent_state.last_action": agent_result.get("strategy", "stall"),
+                        "agent_state.notes": agent_result.get("notes", "")
+                    }
+                }
+            )
             
             # Persist Agent Reply
             agent_msg = Message(
@@ -140,14 +151,12 @@ async def receive_message(
             )
             await db.messages.insert_one(agent_msg.model_dump())
 
-        # 5. Background Tasks
-        background_tasks.add_task(process_background_tasks, session_id, incoming_text)
+        # 5. Background Tasks (Pass current history to extractor)
+        background_tasks.add_task(process_background_tasks, session_id, incoming_text, full_history if is_confirmed_scam else formatted_history)
 
         return {
             "status": "success",
-            "action": action_taken,
-            "reply": agent_reply,
-            "sessionId": session_id
+            "reply": agent_reply
         }
     except Exception as e:
         logger.error(f"❌ Message endpoint error: {str(e)}", exc_info=True)

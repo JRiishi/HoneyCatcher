@@ -20,7 +20,7 @@ const Navbar = () => {
                     System Operational
                 </div>
                 <div className="h-8 w-px bg-white/10" />
-                <Link to="/" className="text-sm font-medium hover:text-white transition-colors text-gray-400">
+                <Link to="/playground" className="text-sm font-medium hover:text-white transition-colors text-gray-400">
                     Testing Lab
                 </Link>
                 <Link to="/voice" className="text-sm font-medium hover:text-white transition-colors text-gray-400 flex items-center gap-1">

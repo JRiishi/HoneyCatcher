@@ -71,11 +71,17 @@ class HoneyPotAgent:
             return {
                 "intent": result.get("intent", "unknown"),
                 "emotion": result.get("emotion", "neutral"),
-                "strategy": result.get("strategy", "stall")
+                "strategy": result.get("strategy", "stall"),
+                "behavioral_notes": result.get("behavioral_notes", "")
             }
         except Exception as e:
              # logger.warning(f"Intent analysis failed: {e}")
-             return {"intent": "unknown", "emotion": "neutral", "strategy": "stall"}
+             return {
+                 "intent": "unknown", 
+                 "emotion": "neutral", 
+                 "strategy": "stall",
+                 "behavioral_notes": "Scammer is engaging in suspicious behavior."
+             }
 
     def _generate_response(self, state: AgentState):
         """Node 2: Generate draft response"""
@@ -141,10 +147,11 @@ class HoneyPotAgent:
         
         return workflow.compile()
 
-    async def run(self, history: List[Dict[str, str]]):
+    async def run(self, history: List[Dict[str, str]]) -> Dict[str, Any]:
         """
         Run the agent graph.
         History format: [{"role": "scammer", "content": "..."}, ...]
+        Returns dict with: reply, intent, emotion, strategy, notes
         """
         lc_messages = []
         for h in history:
@@ -165,10 +172,20 @@ class HoneyPotAgent:
         
         try:
             result = await self.workflow.ainvoke(initial_state)
-            return result.get("final_response", "I am sorry, I didn't understand that.")
+            return {
+                "reply": result.get("final_response", "I am sorry, I didn't understand that."),
+                "intent": result.get("intent", "unknown"),
+                "emotion": result.get("emotion", "unknown"),
+                "strategy": result.get("strategy", "unknown"),
+                "notes": result.get("behavioral_notes", "Suspicious interaction.")
+            }
         except Exception as e:
             import logging
             logging.error(f"Agent graph error: {e}", exc_info=True)
-            return f"I... am having trouble with my computer."
+            return {
+                "reply": "I... am having trouble with my phone line.",
+                "intent": "fault",
+                "notes": "System error during engagement."
+            }
 
 agent_system = HoneyPotAgent()

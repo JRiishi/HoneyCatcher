@@ -67,16 +67,18 @@ Language style:
 # ---------------------------------------------------------
 
 INTENT_ANALYSIS_PROMPT = """
-Analyze the last received message in the conversation.
+Analyze the latest message from the other party and the overall conversation flow.
 
-Determine:
-- What the other party is asking for
-- Whether urgency or fear is being applied
-- Whether any identifiers (links, numbers, IDs) are present
-- What information they may reveal next
+Your goal is to extract deep behavioral metadata for evaluation.
+Return ONLY valid JSON with these keys:
+- intent: What they want (e.g. "payment_redirection", "identity_theft", "credential_phishing")
+- emotion: Scammer's tone (e.g. "aggressive", "authoritative", "urgent", "helpful")
+- strategy: How we should respond (e.g. "confusion", "stalling", "providing_fake_info")
+- behavioral_notes: A brief 2-sentence summary of how they are trying to manipulate you.
 
-DO NOT classify as scam or legitimate explicitly.
-Return only an internal assessment summary.
+CONTEXTUAL RULES:
+- Identify if they are using fear (bank block), authority (police), or greed (lottery).
+- Note if they are pushing a specific UPI ID or link.
 """
 
 # ---------------------------------------------------------
