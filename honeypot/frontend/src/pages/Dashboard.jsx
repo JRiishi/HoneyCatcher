@@ -48,14 +48,14 @@ const Dashboard = () => {
     const activeSessions = sessions.filter(s => s.status !== 'terminated');
 
     return (
-        <div className="h-screen bg-background text-text-primary flex flex-col overflow-hidden">
+        <div className="min-h-screen bg-background text-text-primary flex flex-col overflow-hidden">
             <Navbar />
 
-            <main className="flex-1 flex flex-col max-w-7xl mx-auto w-full mt-20 px-8 pb-8 overflow-hidden">
-                <header className="mb-6 flex justify-between items-end shrink-0">
+            <main className="flex-1 flex flex-col w-full mt-12 md:mt-20 px-4 md:px-8 pb-8 overflow-hidden">
+                <header className="mb-4 md:mb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-4 shrink-0">
                     <div>
-                        <h1 className="text-4xl font-bold mb-2">Active Threats</h1>
-                        <p className="text-gray-400">Monitoring {activeSessions.length} active engagements</p>
+                        <h1 className="text-2xl md:text-4xl font-bold mb-2">Active Threats</h1>
+                        <p className="text-gray-400 text-sm md:text-base">Monitoring {activeSessions.length} active engagements</p>
                     </div>
                     <button
                         onClick={async () => {
@@ -72,27 +72,29 @@ const Dashboard = () => {
                             setSessions((data || []).sort((a, b) => new Date(b.last_updated) - new Date(a.last_updated)));
                         }}
                         disabled={simulating}
-                        className="bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+                        className="btn-touch w-full md:w-auto bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center md:justify-start gap-2"
                     >
                         {simulating ? (
                             <>
                                 <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                                INJECTING THREAT...
+                                <span className="hidden sm:inline">INJECTING THREAT...</span>
+                                <span className="sm:hidden">INJECT...</span>
                             </>
                         ) : (
                             <>
                                 <AlertCircle size={16} />
-                                SIMULATE ATTACK
+                                <span className="hidden sm:inline">SIMULATE ATTACK</span>
+                                <span className="sm:hidden">SIMULATE</span>
                             </>
                         )}
                     </button>
                 </header>
 
-                <div className="mb-8">
+                <div className="mb-6 md:mb-8">
                     <DashboardFilters onFilterChange={handleFilterChange} />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6  overflow-y-auto ">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 overflow-y-auto">
                     {loading ? (
                         <div className="text-gray-500 animate-pulse">Scanning network...</div>
                     ) : sessions.length === 0 ? (

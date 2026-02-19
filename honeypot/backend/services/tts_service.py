@@ -203,13 +203,25 @@ class TTSService:
     
     def _build_result(self, audio_path: str, language: str) -> Dict[str, any]:
         """
-        Build synthesis result dictionary
+        Build synthesis result dictionary.
+        Also uploads the audio to object storage (MinIO) if available.
         """
         # Get audio duration (approximate)
         duration = self._estimate_duration(audio_path)
         
+        # Upload to object storage for persistence
+        object_name = audio_path
+        try:
+            from services.storage_service import storage
+            rel_path = str(Path(audio_path).relative_to(Path(getattr(settings, 'AUDIO_STORAGE_PATH', './storage/audio'))))
+            object_name = f"synthesized/{rel_path}"
+            storage.upload_file(object_name, audio_path, content_type="audio/wav")
+        except Exception as e:
+            logger.debug(f"Object storage upload skipped: {e}")
+            object_name = audio_path  # keep local path as fallback
+        
         return {
-            "audio_path": audio_path,
+            "audio_path": object_name,
             "duration": duration,
             "format": "wav",
             "language": language

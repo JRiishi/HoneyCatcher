@@ -1,0 +1,26 @@
+# Self-hosted TURN server using coturn (free & open-source)
+# Required for WebRTC NAT traversal when P2P fails
+#
+# Usage:
+#   docker-compose -f docker-compose.coturn.yml up -d
+#
+# Test with: https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/
+
+version: '3.8'
+
+services:
+  coturn:
+    image: coturn/coturn:latest
+    container_name: honeybadger-turn
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+    command: ["-c", "/etc/turnserver.conf"]
+    # If not using network_mode: host, uncomment these ports:
+    # ports:
+    #   - "3478:3478"        # STUN/TURN TCP
+    #   - "3478:3478/udp"    # STUN/TURN UDP
+    #   - "5349:5349"        # STUN/TURN TLS
+    #   - "5349:5349/udp"    # STUN/TURN DTLS
+    #   - "49152-65535:49152-65535/udp"  # Relay ports

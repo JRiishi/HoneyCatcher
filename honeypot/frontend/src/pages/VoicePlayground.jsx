@@ -44,15 +44,15 @@ const VoicePlayground = () => {
 
             <Navbar />
 
-            <main className="relative z-10 max-w-[1400px] mx-auto px-6 pt-24 pb-20">
+            <main className="relative z-10 w-full px-4 md:px-6 pt-16 md:pt-24 pb-20 max-w-full md:max-w-[1400px] md:mx-auto">
                 {/* Header Section */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-16"
+                    className="flex flex-col gap-4 md:gap-6 mb-8 md:mb-16"
                 >
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-3">
+                    <div className="space-y-2 md:space-y-4">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 md:gap-3">
                             <div className="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black text-emerald-400 tracking-[0.2em] uppercase">
                                 Experimental Lab v2.0
                             </div>
@@ -62,15 +62,15 @@ const VoicePlayground = () => {
                                 ))}
                             </div>
                         </div>
-                        <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter leading-none">
+                        <h1 className="text-3xl sm:text-4xl md:text-6xl lg:text-7xl font-black text-white tracking-tighter leading-tight md:leading-none">
                             VOICE <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-500 to-teal-400">PLAYGROUND</span>
                         </h1>
-                        <p className="max-w-xl text-slate-500 text-lg font-medium leading-relaxed">
+                        <p className="max-w-xl text-slate-500 text-sm md:text-lg font-medium leading-relaxed">
                             Experience the future of deceptive cyber-defense. Intercept, analyze, and neutralize voice threats with our multilingual agentic core.
                         </p>
                     </div>
 
-                    <div className="flex items-center gap-8 p-6 bg-white/[0.02] border border-white/5 rounded-3xl backdrop-blur-xl">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 md:gap-8 p-4 md:p-6 bg-white/[0.02] border border-white/5 rounded-2xl md:rounded-3xl backdrop-blur-xl">
                         <div className="text-center">
                             <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-1">Status</p>
                             <div className="flex items-center gap-2 text-emerald-400">

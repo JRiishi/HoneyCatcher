@@ -37,7 +37,9 @@ class StreamingTranscriber:
         
         self.stt = stt_service
         self.buffer_threshold_ms = buffer_threshold_ms
+        # Restrict to English/Hindi only (Hinglish = code-switching between en/hi)
         self.language = language          # None = auto-detect on first chunk
+        self.allowed_languages = ['en', 'hi']  # English and Hindi only
         self.beam_size = beam_size
         self._language_locked = False
         
@@ -104,11 +106,19 @@ class StreamingTranscriber:
         )
         
         if result and result.get("text"):
-            # Lock language after first successful detection
+            # Lock language after first successful detection (only English/Hindi allowed)
             if not self._language_locked and result.get("language"):
-                self.language = result["language"]
-                self._language_locked = True
-                logger.info(f"Language locked to: {self.language}")
+                detected_lang = result["language"]
+                # Force English/Hindi only - reject other languages
+                if detected_lang in self.allowed_languages:
+                    self.language = detected_lang
+                    self._language_locked = True
+                    logger.info(f"✅ Language locked to: {self.language} ({detected_lang})")
+                else:
+                    # Force to English if other language detected
+                    self.language = 'en'
+                    self._language_locked = True
+                    logger.warning(f"⚠️ Non-English/Hindi language detected ({detected_lang}), forcing to English")
             
             # Build segment result
             segment = {

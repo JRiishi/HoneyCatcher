@@ -26,11 +26,27 @@ class Settings(BaseSettings):
     # Callback
     GUVI_CALLBACK_URL: str = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"
     
+    # JWT Authentication
+    JWT_SECRET_KEY: str = "change-me-to-a-long-random-string"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    
     # Live Takeover - ElevenLabs Voice Cloning
     ELEVENLABS_API_KEY: str = ""
     ELEVENLABS_MODEL: str = "eleven_turbo_v2_5"
     
     # URL Scanning
     VIRUSTOTAL_API_KEY: str = ""
+    
+    # MinIO / S3-compatible Object Storage
+    MINIO_ENDPOINT: str = "localhost:9000"
+    MINIO_ACCESS_KEY: str = "minioadmin"
+    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_BUCKET: str = "honeybadger-audio"
+    MINIO_SECURE: bool = False
+    
+    # Redis (for rate limiting)
+    REDIS_URL: str = "redis://localhost:6379/0"
 
 settings = Settings()

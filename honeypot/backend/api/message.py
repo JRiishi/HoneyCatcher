@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 import uuid
 import logging
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from core.auth import verify_api_key
 from db.mongo import db
@@ -15,6 +18,7 @@ from agents.graph import agent_system
 
 router = APIRouter()
 logger = logging.getLogger("api.message")
+limiter = Limiter(key_func=get_remote_address)
 
 class InnerMessage(BaseModel):
     sender: str
@@ -43,7 +47,9 @@ async def process_background_tasks(session_id: str, message_content: str, histor
     await lifecycle_manager.check_termination(session_id)
 
 @router.post("/message", response_model=MessageResponse)
+@limiter.limit("60/minute")
 async def receive_message(
+    request: Request,
     payload: MessageInput, 
     background_tasks: BackgroundTasks,
     api_key: str = Depends(verify_api_key)

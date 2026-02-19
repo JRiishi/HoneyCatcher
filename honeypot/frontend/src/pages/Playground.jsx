@@ -94,15 +94,15 @@ const Playground = () => {
     const hasIntel = Object.values(intel).some(arr => arr && arr.length > 0);
 
     return (
-        <div className="h-screen bg-background overflow-hidden flex flex-col">
+        <div className="min-h-screen bg-background overflow-hidden flex flex-col">
             <Navbar />
 
-            <div className="flex-1 flex gap-6 p-6 pt-24 overflow-hidden max-w-[1800px] mx-auto w-full">
-                {/* Left Panel - Quick Actions */}
-                <div className="w-80 space-y-4 overflow-y-auto">
+            <div className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-6 p-4 lg:p-6 pt-16 lg:pt-24 overflow-hidden max-w-[1800px] mx-auto w-full">
+                {/* Left Panel - Quick Actions (hidden on mobile, shown on lg) */}
+                <div className="hidden lg:block w-80 space-y-4 overflow-y-auto">
                     <GlassCard className="p-0 overflow-hidden">
                         <div className="bg-primary/10 p-4 border-b border-white/5">
-                            <h3 className="font-bold flex items-center gap-2">
+                            <h3 className="font-bold flex items-center gap-2 text-sm">
                                 <Brain size={18} className="text-primary" />
                                 Test Scenarios
                             </h3>
@@ -114,7 +114,7 @@ const Playground = () => {
                                     key={i}
                                     onClick={() => handleSend(msg)}
                                     disabled={loading}
-                                    className="w-full text-left p-3 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary/30 rounded-lg text-xs transition-all group"
+                                    className="w-full text-left p-3 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-primary/30 rounded-lg text-xs transition-all group btn-touch"
                                 >
                                     <div className="text-gray-300 group-hover:text-white line-clamp-2">
                                         {msg}

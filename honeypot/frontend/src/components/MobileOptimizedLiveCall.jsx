@@ -3,16 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Phone, Mic, StopCircle, X, Menu } from 'lucide-react';
 import { useWakeLock, useVibrate, useBatteryStatus } from '../hooks/useMobile';
-import api from '../services/api';
 
 export default function MobileOptimizedLiveCall() {
   const navigate = useNavigate();
   const [isRecording, setIsRecording] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [currentTranscript, setCurrentTranscript] = useState('');
+  const [transcript, setTranscript] = useState([]);
   const [operatorPanelOpen, setOperatorPanelOpen] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
-  const [sessionId, setSessionId] = useState(null);
+  const [callId, setCallId] = useState(null);
+  const [status, setStatus] = useState('Ready to call');
+  const [threatLevel, setThreatLevel] = useState(0);
+  const [participantConnected, setParticipantConnected] = useState(false);
   
   const { request: requestWakeLock, release: releaseWakeLock } = useWakeLock();
   const vibrate = useVibrate();
@@ -20,6 +22,9 @@ export default function MobileOptimizedLiveCall() {
   
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const audioQueueRef = useRef([]);
+  const isPlayingRef = useRef(false);
+  const audioContextRef = useRef(null);
 
   useEffect(() => {
     if (battery.level < 0.2 && !battery.charging) {
@@ -34,46 +39,60 @@ export default function MobileOptimizedLiveCall() {
       // Request wake lock
       await requestWakeLock();
       
-      // Create session
-      const response = await api.post('/api/live-call/session', {
-        operator_id: 'mobile-operator',
-        persona_type: 'elderly_victim'
+      // Initialize call session with backend
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+      const response = await fetch(`${API_BASE}/call/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': import.meta.env.VITE_API_SECRET || 'unsafe-secret-key-change-me'
+        },
+        body: JSON.stringify({
+          operator_id: 'mobile-operator',
+          persona_type: 'elderly_victim'
+        })
       });
       
-      setSessionId(response.data.session_id);
+      if (!response.ok) throw new Error('Failed to start call');
       
-      // Connect WebSocket
+      const { call_id } = await response.json();
+      setCallId(call_id);
+      setStatus('Connecting...');
+      
+      // Connect WebSocket to call
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/live-call/ws/${response.data.session_id}`;
+      const wsUrl = `${protocol}//${window.location.host}/api/call/connect?call_id=${call_id}&role=operator`;
       
       wsRef.current = new WebSocket(wsUrl);
       
       wsRef.current.onopen = () => {
         setIsConnected(true);
+        setStatus('In call');
         vibrate([50, 100, 50]);
         startRecording();
       };
       
       wsRef.current.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        
-        if (data.type === 'transcript') {
-          setCurrentTranscript(data.text);
-        } else if (data.type === 'suggestion') {
-          setSuggestions(prev => [...prev, data.suggestion]);
-        } else if (data.type === 'intelligence') {
-          vibrate(100); // Haptic feedback for new intelligence
-        }
+        handleWebSocketMessage(data);
       };
       
-      wsRef.current.onerror = () => {
+      wsRef.current.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setStatus('Connection error');
         alert('Connection error. Please check your network.');
         endCall();
       };
       
+      wsRef.current.onclose = () => {
+        setIsConnected(false);
+        setStatus('Disconnected');
+      };
+      
     } catch (error) {
       console.error('Failed to start call:', error);
-      alert('Failed to start call');
+      setStatus('Failed to start call');
+      alert('Failed to start call: ' + error.message);
       releaseWakeLock();
     }
   };
@@ -102,19 +121,15 @@ export default function MobileOptimizedLiveCall() {
       mediaRecorderRef.current.ondataavailable = async (event) => {
         if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
           const reader = new FileReader();
-          reader.onload = () => {
-            const arrayBuffer = reader.result;
-            const base64Audio = btoa(
-              new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-            );
-            
+          reader.onloadend = () => {
+            const base64 = reader.result.split(',')[1];
             wsRef.current.send(JSON.stringify({
-              type: 'audio',
-              data: base64Audio,
+              type: 'audio_chunk',
+              audio: base64,
               format: format
             }));
           };
-          reader.readAsArrayBuffer(event.data);
+          reader.readAsDataURL(event.data);
         }
       };
 
@@ -128,7 +143,160 @@ export default function MobileOptimizedLiveCall() {
     }
   };
 
-  const endCall = () => {
+  // WebSocket message handler
+  const handleWebSocketMessage = async (data) => {
+    switch (data.type) {
+      case 'connected':
+        setStatus(data.waiting_for_scammer ? 'Waiting for scammer...' : 'Connected');
+        break;
+      
+      case 'participant_joined':
+        setParticipantConnected(true);
+        setStatus('Call active');
+        vibrate([50, 100, 50]);
+        setTranscript(prev => [...prev, {
+          type: 'system',
+          text: '🟢 Scammer has joined the call',
+          timestamp: new Date().toISOString()
+        }]);
+        break;
+      
+      case 'participant_left':
+        setParticipantConnected(false);
+        setStatus(`${data.role} left the call`);
+        vibrate(100);
+        break;
+      
+      case 'audio_stream':
+        // Queue incoming audio for playback
+        await playIncomingAudio(data.audio, data.format);
+        break;
+      
+      case 'transcription':
+        // Add transcription to transcript
+        setTranscript(prev => [...prev, {
+          speaker: data.speaker,
+          text: data.text,
+          language: data.language,
+          timestamp: data.timestamp,
+          confidence: data.confidence
+        }]);
+        vibrate(50);
+        break;
+      
+      case 'ai_coaching':
+        // Display AI coaching suggestions
+        setSuggestions(data.suggestions || []);
+        if (data.recommended_response) {
+          setTranscript(prev => [...prev, {
+            type: 'ai_suggestion',
+            text: `💡 AI Suggests: "${data.recommended_response}"`,
+            timestamp: new Date().toISOString()
+          }]);
+          vibrate([30, 50, 30]);
+        }
+        break;
+      
+      case 'intelligence_update':
+        // Update threat level (operator only)
+        if (data.threat_level !== undefined) {
+          setThreatLevel(data.threat_level);
+          vibrate(100);
+        }
+        break;
+      
+      case 'call_ended':
+        setStatus('Call ended');
+        setTimeout(() => endCall(), 1000);
+        break;
+    }
+  };
+
+  // Audio playback queue system
+  const playIncomingAudio = async (audioBase64, format) => {
+    try {
+      audioQueueRef.current.push({ audioBase64, format });
+      if (!isPlayingRef.current) {
+        await playNextInQueue();
+      }
+    } catch (error) {
+      console.error('Audio queue error:', error);
+    }
+  };
+
+  const playNextInQueue = async () => {
+    if (audioQueueRef.current.length === 0) {
+      isPlayingRef.current = false;
+      return;
+    }
+    
+    isPlayingRef.current = true;
+    const { audioBase64, format } = audioQueueRef.current.shift();
+    
+    try {
+      // Map format to proper MIME type
+      const mimeType = format === 'wav' ? 'audio/wav' : 
+                      format === 'mp3' ? 'audio/mpeg' :
+                      format === 'ogg' ? 'audio/ogg' : 'audio/webm';
+      const audioBlob = base64ToBlob(audioBase64, mimeType);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      const audio = new Audio(audioUrl);
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        playNextInQueue();
+      };
+      audio.onerror = async (e) => {
+        console.error('Audio playback failed, trying Web Audio API fallback...', e);
+        URL.revokeObjectURL(audioUrl);
+        
+        // Try Web Audio API fallback
+        try {
+          await playAudioWithWebAudioAPI(audioBlob);
+          playNextInQueue();
+        } catch (fallbackError) {
+          console.error('Web Audio API fallback also failed:', fallbackError);
+          playNextInQueue();
+        }
+      };
+      
+      await audio.play();
+    } catch (error) {
+      console.error('Audio decode error:', error);
+      playNextInQueue();
+    }
+  };
+
+  const playAudioWithWebAudioAPI = async (audioBlob) => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+    
+    const source = audioContextRef.current.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContextRef.current.destination);
+    
+    return new Promise((resolve, reject) => {
+      source.onended = resolve;
+      source.onerror = reject;
+      source.start(0);
+    });
+  };
+
+  const base64ToBlob = (base64, mimeType) => {
+    const byteCharacters = atob(base64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+  };
+
+  const endCall = async () => {
     vibrate(100);
     
     if (mediaRecorderRef.current && isRecording) {
@@ -140,13 +308,28 @@ export default function MobileOptimizedLiveCall() {
       wsRef.current.close();
     }
     
+    // End call on backend
+    if (callId) {
+      try {
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+        await fetch(`${API_BASE}/call/end/${callId}`, {
+          method: 'POST',
+          headers: {
+            'x-api-key': import.meta.env.VITE_API_SECRET || 'unsafe-secret-key-change-me'
+          }
+        });
+      } catch (error) {
+        console.error('End call error:', error);
+      }
+    }
+    
     releaseWakeLock();
     setIsRecording(false);
     setIsConnected(false);
+    setStatus('Call ended');
     
-    if (sessionId) {
-      navigate(`/session/${sessionId}`);
-    }
+    // Navigate to dashboard
+    setTimeout(() => navigate('/dashboard'), 500);
   };
 
   const toggleOperatorPanel = () => {
@@ -218,17 +401,29 @@ export default function MobileOptimizedLiveCall() {
           )}
         </motion.button>
 
-        {/* Transcript Preview */}
+        {/* Transcript History */}
         <AnimatePresence>
-          {currentTranscript && (
+          {transcript.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="mt-8 w-full max-w-md glass-card p-4"
+              className="mt-8 w-full max-w-md max-h-64 overflow-y-auto glass-card p-4 space-y-3"
             >
-              <h3 className="text-sm font-medium text-white/60 mb-2">Live Transcript</h3>
-              <p className="text-white text-base">{currentTranscript}</p>
+              <h3 className="text-xs font-bold text-white/60 uppercase tracking-wider mb-3">Transcript</h3>
+              {transcript.slice(-5).map((item, idx) => (
+                <div key={idx} className="text-xs leading-relaxed">
+                  {item.type === 'system' ? (
+                    <p className="text-emerald-400 italic">{item.text}</p>
+                  ) : item.type === 'ai_suggestion' ? (
+                    <p className="text-yellow-400 font-medium">{item.text}</p>
+                  ) : (
+                    <p className={item.speaker === 'scammer' ? 'text-red-300' : 'text-blue-300'}>
+                      <span className="font-bold">{item.speaker}:</span> {item.text}
+                    </p>
+                  )}
+                </div>
+              ))}
             </motion.div>
           )}
         </AnimatePresence>
@@ -271,6 +466,30 @@ export default function MobileOptimizedLiveCall() {
                     <X className="w-5 h-5 text-white" />
                   </button>
                 </div>
+
+                {/* Threat Level Indicator */}
+                {participantConnected && (
+                  <div className="mb-6 glass-card p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-medium text-white/60 uppercase">Threat Level</h3>
+                      <span className={`text-lg font-bold ${
+                        threatLevel < 0.3 ? 'text-emerald-400' :
+                        threatLevel < 0.7 ? 'text-yellow-400' : 'text-red-400'
+                      }`}>
+                        {Math.round(threatLevel * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full transition-all ${
+                          threatLevel < 0.3 ? 'bg-emerald-500' :
+                          threatLevel < 0.7 ? 'bg-yellow-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${threatLevel * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* AI Suggestions */}
                 <div className="space-y-3">

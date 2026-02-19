@@ -1,6 +1,7 @@
 """
 Audio Processing Utilities
-Handles audio chunking, validation, format conversion, and storage
+Handles audio chunking, validation, format conversion, and storage.
+Uses StorageService (MinIO / local fallback) for persistence.
 """
 
 import os
@@ -21,6 +22,7 @@ except ImportError:
     logging.warning("Audio libraries not installed. Install with: pip install pydub numpy soundfile")
 
 from config import settings
+from services.storage_service import storage
 
 logger = logging.getLogger("audio_processor")
 
@@ -119,25 +121,18 @@ class AudioProcessor:
         format: str = "wav"
     ) -> str:
         """
-        Save audio chunk to disk
-        Returns: file_path
+        Save audio chunk to object storage (MinIO / local fallback).
+        Returns: object_name (key)
         """
         try:
-            # Create session folder
-            session_folder = self.storage_path / session_id
-            session_folder.mkdir(parents=True, exist_ok=True)
-            
-            # Generate filename with timestamp and sequence
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-            filename = f"chunk_{sequence_number:04d}_{timestamp}.{format}"
-            file_path = session_folder / filename
+            object_name = f"{session_id}/chunk_{sequence_number:04d}_{timestamp}.{format}"
             
-            # Write file
-            with open(file_path, 'wb') as f:
-                f.write(audio_data)
+            content_type = "audio/wav" if format == "wav" else f"audio/{format}"
+            storage.upload(object_name, audio_data, content_type=content_type)
             
-            logger.info(f"Saved audio chunk: {file_path}")
-            return str(file_path)
+            logger.info(f"Saved audio chunk: {object_name}")
+            return object_name
             
         except Exception as e:
             logger.error(f"Failed to save audio chunk: {e}", exc_info=True)
@@ -145,11 +140,19 @@ class AudioProcessor:
     
     def load_chunk(self, file_path: str) -> bytes:
         """
-        Load audio chunk from disk
+        Load audio chunk from object storage.
+        Accepts either an object_name key or a legacy local file path.
         """
         try:
-            with open(file_path, 'rb') as f:
-                return f.read()
+            # Try storage service first (object key)
+            return storage.download(file_path)
+        except FileNotFoundError:
+            # Fallback: try reading as a raw local path (legacy data)
+            try:
+                with open(file_path, 'rb') as f:
+                    return f.read()
+            except Exception:
+                raise
         except Exception as e:
             logger.error(f"Failed to load audio chunk: {e}")
             raise
@@ -184,14 +187,29 @@ class AudioProcessor:
     
     def cleanup_session_audio(self, session_id: str):
         """
-        Delete all audio files for a session
+        Delete all audio files for a session.
+        Cleans both object storage and legacy local filesystem.
         """
         try:
+            # Clean local storage (legacy + fallback)
             session_folder = self.storage_path / session_id
             if session_folder.exists():
                 import shutil
                 shutil.rmtree(session_folder)
-                logger.info(f"Cleaned up audio for session: {session_id}")
+                logger.info(f"Cleaned up local audio for session: {session_id}")
+            
+            # Clean MinIO - list and delete all objects with session prefix
+            try:
+                from services.storage_service import _get_minio_client, _use_local_fallback
+                client = _get_minio_client()
+                if client and not _use_local_fallback:
+                    objects = client.list_objects(settings.MINIO_BUCKET, prefix=f"{session_id}/", recursive=True)
+                    for obj in objects:
+                        client.remove_object(settings.MINIO_BUCKET, obj.object_name)
+                    logger.info(f"Cleaned up MinIO audio for session: {session_id}")
+            except Exception as e:
+                logger.warning(f"MinIO cleanup skipped: {e}")
+                
         except Exception as e:
             logger.error(f"Failed to cleanup session audio: {e}")
 

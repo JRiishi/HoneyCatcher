@@ -8,6 +8,7 @@ import LandingPage from './pages/LandingPage.jsx';
 import LiveTakeoverMode from './pages/LiveTakeoverMode.jsx';
 import VoiceCloneSetup from './pages/VoiceCloneSetup.jsx';
 import LiveCall from './pages/LiveCall.jsx';
+import LiveCallWebRTC from './pages/LiveCallWebRTC.jsx';
 import CallStarter from './pages/CallStarter.jsx';
 import MobileNavbar from './components/MobileNavbar.jsx';
 import InstallPWAButton from './components/InstallPWAButton.jsx';
@@ -46,6 +47,7 @@ function App() {
         <Route path="/live-takeover" element={<LiveTakeoverMode />} />
         <Route path="/voice-clone-setup" element={<VoiceCloneSetup />} />
         <Route path="/live-call" element={isMobileDevice ? <MobileOptimizedLiveCall /> : <LiveCall />} />
+        <Route path="/live-call-webrtc/:callId" element={<LiveCallWebRTC />} />
         <Route path="/call-starter" element={<CallStarter />} />
       </Routes>
 

@@ -167,24 +167,58 @@ class CallManager:
                 logger.error(f"Error sending to scammer: {e}")
     
     async def route_audio_to_scammer(self, call_id: str, audio_base64: str, format: str = "webm"):
-        """Route operator's audio to scammer."""
-        await self.send_to_scammer(call_id, {
-            "type": "audio_stream",
-            "audio": audio_base64,
-            "format": format,
-            "source": "operator",
-            "timestamp": datetime.utcnow().isoformat()
-        })
+        """Route operator's audio to scammer (with conversion to playable format)."""
+        session = self.sessions.get(call_id)
+        if not session:
+            return
+        
+        try:
+            # Decode and normalize audio to make it playable
+            audio_bytes = base64.b64decode(audio_base64)
+            normalized = session.normalizer.normalize_chunk(audio_bytes, source_format=format)
+            
+            if normalized:
+                # Re-encode to base64 and send as WAV (more compatible)
+                normalized_base64 = base64.b64encode(normalized).decode('utf-8')
+                await self.send_to_scammer(call_id, {
+                    "type": "audio_stream",
+                    "audio": normalized_base64,
+                    "format": "wav",  # Normalized audio is WAV format
+                    "source": "operator",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            else:
+                # Skip if normalization failed (incomplete chunk)
+                logger.debug(f"Skipped audio routing (normalization failed)")
+        except Exception as e:
+            logger.error(f"Audio routing error: {e}")
     
     async def route_audio_to_operator(self, call_id: str, audio_base64: str, format: str = "webm"):
-        """Route scammer's audio to operator."""
-        await self.send_to_operator(call_id, {
-            "type": "audio_stream",
-            "audio": audio_base64,
-            "format": format,
-            "source": "scammer",
-            "timestamp": datetime.utcnow().isoformat()
-        })
+        """Route scammer's audio to operator (with conversion to playable format)."""
+        session = self.sessions.get(call_id)
+        if not session:
+            return
+        
+        try:
+            # Decode and normalize audio to make it playable
+            audio_bytes = base64.b64decode(audio_base64)
+            normalized = session.normalizer.normalize_chunk(audio_bytes, source_format=format)
+            
+            if normalized:
+                # Re-encode to base64 and send as WAV (more compatible)
+                normalized_base64 = base64.b64encode(normalized).decode('utf-8')
+                await self.send_to_operator(call_id, {
+                    "type": "audio_stream",
+                    "audio": normalized_base64,
+                    "format": "wav",  # Normalized audio is WAV format
+                    "source": "scammer",
+                    "timestamp": datetime.utcnow().isoformat()
+                })
+            else:
+                # Skip if normalization failed (incomplete chunk)
+                logger.debug(f"Skipped audio routing (normalization failed)")
+        except Exception as e:
+            logger.error(f"Audio routing error: {e}")
     
     async def cleanup_session(self, call_id: str):
         """Clean up ended call session."""

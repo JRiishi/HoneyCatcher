@@ -19,7 +19,9 @@ const CallStarter = () => {
     
     try {
       const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-      const response = await fetch(`${API_BASE}/call/start`, {
+      
+      // Create WebRTC room (unified with WebRTC signaling system)
+      const response = await fetch(`${API_BASE}/webrtc/room/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -48,12 +50,14 @@ const CallStarter = () => {
 
   const joinAsOperator = () => {
     if (callLinks) {
-      navigate(`/live-call?call_id=${callLinks.call_id}&role=operator`);
+      // Navigate to WebRTC live call page with URL param (matches route: /live-call-webrtc/:callId)
+      navigate(`/live-call-webrtc/${callLinks.room_id}`);
     }
   };
 
   const copyScammerLink = () => {
-    const fullLink = `${window.location.origin}/live-call?call_id=${callLinks.call_id}&role=scammer`;
+    // Scammer joins via WebRTC system (same as operator)
+    const fullLink = `${window.location.origin}/live-call-webrtc/${callLinks.room_id}?role=scammer`;
     navigator.clipboard.writeText(fullLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -226,7 +230,7 @@ const CallStarter = () => {
                   <div className="flex items-center justify-center gap-2 text-slate-400">
                     <Terminal className="w-4 h-4" />
                     <span className="font-mono text-sm">ID:</span>
-                    <span className="text-emerald-400 font-mono font-bold">{callLinks.call_id}</span>
+                    <span className="text-emerald-400 font-mono font-bold">{callLinks.room_id}</span>
                   </div>
                 </div>
 
@@ -275,7 +279,7 @@ const CallStarter = () => {
                   <div className="flex gap-3">
                     <input
                       type="text"
-                      value={`${window.location.origin}/live-call?call_id=${callLinks.call_id}&role=scammer`}
+                      value={`${window.location.origin}/live-call?call_id=${callLinks.room_id}&role=scammer`}
                       readOnly
                       className="flex-1 px-4 py-3 bg-black/30 border border-red-500/20 rounded-xl text-white font-mono text-xs md:text-sm"
                     />

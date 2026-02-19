@@ -3,13 +3,16 @@ Voice API Router
 Endpoints for voice upload, transcription, and synthesis.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Request
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from core.auth import verify_api_key
 from db.mongo import db
@@ -21,6 +24,7 @@ from core.lifecycle import lifecycle_manager
 
 router = APIRouter()
 logger = logging.getLogger("api.voice")
+limiter = Limiter(key_func=get_remote_address)
 
 class VoiceResponse(BaseModel):
     status: str
@@ -43,7 +47,9 @@ async def process_voice_background_tasks(session_id: str, transcription: str):
         await lifecycle_manager.check_termination(session_id)
 
 @router.post("/voice/upload", response_model=VoiceResponse)
+@limiter.limit("30/minute")
 async def upload_voice_chunk(
+    request: Request,
     background_tasks: BackgroundTasks,
     sessionId: str = Form(...),
     audio: UploadFile = File(...),

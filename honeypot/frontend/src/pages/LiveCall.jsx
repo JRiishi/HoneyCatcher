@@ -195,11 +195,12 @@ const LiveCall = () => {
     }
     
     isPlayingRef.current = true;
-    const { audioBase64 } = audioQueueRef.current.shift();
+    const { audioBase64, format } = audioQueueRef.current.shift();
     
     try {
-      // Decode base64 to blob
-      const audioBlob = base64ToBlob(audioBase64, 'audio/webm');
+      // Decode base64 to blob with proper MIME type
+      const mimeType = format === 'wav' ? 'audio/wav' : 'audio/webm';
+      const audioBlob = base64ToBlob(audioBase64, mimeType);
       const audioUrl = URL.createObjectURL(audioBlob);
       
       // Create audio element and play
@@ -208,9 +209,18 @@ const LiveCall = () => {
         URL.revokeObjectURL(audioUrl);
         playNextInQueue(); // Play next in queue
       };
-      audio.onerror = () => {
-        console.error('Audio playback failed');
-        playNextInQueue(); // Skip and play next
+      audio.onerror = async (e) => {
+        console.error('Audio playback failed, trying Web Audio API fallback...', e);
+        URL.revokeObjectURL(audioUrl);
+        
+        // Try Web Audio API fallback
+        try {
+          await playAudioWithWebAudioAPI(audioBlob);
+          playNextInQueue();
+        } catch (fallbackError) {
+          console.error('Web Audio API fallback also failed:', fallbackError);
+          playNextInQueue(); // Skip and play next
+        }
       };
       
       await audio.play();
@@ -218,6 +228,25 @@ const LiveCall = () => {
       console.error('Audio decode error:', error);
       playNextInQueue(); // Skip and play next
     }
+  };
+
+  const playAudioWithWebAudioAPI = async (audioBlob) => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+    
+    const source = audioContextRef.current.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioContextRef.current.destination);
+    
+    return new Promise((resolve, reject) => {
+      source.onended = resolve;
+      source.onerror = reject;
+      source.start(0);
+    });
   };
   
   const base64ToBlob = (base64, mimeType) => {

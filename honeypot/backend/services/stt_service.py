@@ -104,9 +104,12 @@ class STTService:
             segments, info = self.model.transcribe(
                 audio_path,
                 language=language,  # Auto-detect if None
-                beam_size=5,
-                vad_filter=True,  # Voice Activity Detection (removes silence)
-                vad_parameters=dict(min_silence_duration_ms=500)
+                beam_size=1,  # Faster for real-time
+                vad_filter=True,  # Voice Activity Detection
+                vad_parameters=dict(
+                    min_silence_duration_ms=100,  # More sensitive (was 500)
+                    threshold=0.3  # Lower threshold = more sensitive to speech
+                )
             )
             
             # Combine all segments
