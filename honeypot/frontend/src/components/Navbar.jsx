@@ -26,6 +26,9 @@ const Navbar = () => {
                 <Link to="/voice" className="text-sm font-medium hover:text-white transition-colors text-gray-400 flex items-center gap-1">
                     Voice Lab <span className="text-[8px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded-full border border-indigo-500/30">NEW</span>
                 </Link>
+                <Link to="/call-starter" className="text-sm font-medium hover:text-white transition-colors text-gray-400 flex items-center gap-1">
+                    Live Call <span className="text-[8px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full border border-green-500/30">LIVE</span>
+                </Link>
                 <Link to="/dashboard" className="text-sm font-medium hover:text-white transition-colors text-gray-400">
                     Sessions
                 </Link>

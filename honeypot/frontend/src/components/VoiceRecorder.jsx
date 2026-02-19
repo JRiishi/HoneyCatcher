@@ -77,7 +77,8 @@ const VoiceRecorder = ({ sessionId, onTranscription, mode = "ai_speaks" }) => {
         formData.append('mode', mode);
 
         try {
-            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/voice/upload`, {
+            const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+            const response = await fetch(`${API_BASE}/voice/upload`, {
                 method: 'POST',
                 headers: {
                     'x-api-key': import.meta.env.VITE_API_SECRET_KEY || 'unsafe-secret-key-change-me'

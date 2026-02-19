@@ -25,5 +25,12 @@ class Settings(BaseSettings):
     
     # Callback
     GUVI_CALLBACK_URL: str = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"
+    
+    # Live Takeover - ElevenLabs Voice Cloning
+    ELEVENLABS_API_KEY: str = ""
+    ELEVENLABS_MODEL: str = "eleven_turbo_v2_5"
+    
+    # URL Scanning
+    VIRUSTOTAL_API_KEY: str = ""
 
 settings = Settings()

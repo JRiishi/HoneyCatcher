@@ -8,8 +8,11 @@ const VoicePlayer = ({ audioUrl, transcription, naturalizedText, autoPlay = true
     const audioRef = useRef(null);
 
     // Ensure audioUrl has the correct base URL if it's a relative API path
+    const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
     const formattedAudioUrl = audioUrl?.startsWith('/api')
-        ? `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}${audioUrl}`
+        ? `${API_BASE.replace('/api', '')}${audioUrl}`
+        : audioUrl?.startsWith('/')
+        ? `${API_BASE.replace('/api', '')}${audioUrl}`
         : audioUrl;
 
     useEffect(() => {

@@ -131,7 +131,8 @@ class VoiceAdapter:
         full_history = history + [{"role": "scammer", "content": scammer_input["text"]}]
         
         # 3. Existing Agent Decision
-        agent_reply_text = await self.agent.run(full_history)
+        agent_result = await self.agent.run(full_history)
+        agent_reply_text = agent_result["reply"] if isinstance(agent_result, dict) else agent_result
         
         # 4. Agent Text -> Voice
         voice_output = await self.generate_agent_voice(
@@ -147,7 +148,10 @@ class VoiceAdapter:
             "agent_reply": agent_reply_text,
             "agent_naturalized": voice_output["naturalized_text"],
             "agent_audio_path": voice_output.get("audio_path"),
-            "mode": mode
+            "mode": mode,
+            "agent_intent": agent_result.get("intent", "unknown"),
+            "agent_emotion": agent_result.get("emotion", "unknown"),
+            "agent_strategy": agent_result.get("strategy", "unknown")
         }
 
 # Singleton instance

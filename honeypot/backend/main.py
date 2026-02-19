@@ -8,6 +8,7 @@ from config import settings
 from db.mongo import MongoDB
 # Import routers (will be created in next stages)
 from api import message, sessions, voice
+from api import live_takeover, voice_clone, live_call
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -50,6 +51,9 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(message.router, prefix="/api", tags=["Message"])
 app.include_router(sessions.router, prefix="/api", tags=["Sessions"])
 app.include_router(voice.router, prefix="/api", tags=["Voice"])
+app.include_router(live_takeover.router, prefix="/api", tags=["Live Takeover"])
+app.include_router(voice_clone.router, prefix="/api", tags=["Voice Clone"])
+app.include_router(live_call.router, prefix="/api", tags=["Live Call"])
 
 
 @app.get("/health")
