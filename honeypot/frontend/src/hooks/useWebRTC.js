@@ -183,17 +183,15 @@ export const useWebRTC = (roomId, role = 'operator') => {
   }, [localStream]);
   
   /**
-   * Auto-connect on mount
+   * Manual connect - disabled auto-connect to avoid premature getUserMedia
+   * Call connect() explicitly after user interaction
    */
   useEffect(() => {
-    if (roomId) {
-      connect();
-    }
-    
+    // Cleanup on unmount
     return () => {
       disconnect();
     };
-  }, [roomId, connect, disconnect]);
+  }, [disconnect]);
   
   /**
    * Handle remote stream playback

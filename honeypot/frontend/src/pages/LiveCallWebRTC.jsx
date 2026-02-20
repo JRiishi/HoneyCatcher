@@ -24,6 +24,8 @@ const LiveCallWebRTC = () => {
   const [testingVT, setTestingVT] = useState(false);
   const [vtResults, setVtResults] = useState(null);
   const [vtError, setVtError] = useState(null);
+  const [callStarted, setCallStarted] = useState(false);
+  const [startingCall, setStartingCall] = useState(false);
   const isMounted = useRef(true);
 
   const {
@@ -37,6 +39,7 @@ const LiveCallWebRTC = () => {
     stats,
     remoteAudioRef,
     toggleMute,
+    connect,
     disconnect
   } = useWebRTC(callId, role);
 
@@ -67,9 +70,11 @@ const LiveCallWebRTC = () => {
 
     return () => {
       isMounted.current = false;
-      disconnect();
+      if (callStarted) {
+        disconnect();
+      }
     };
-  }, [callId, navigate, disconnect]);
+  }, [callId, navigate, callStarted, disconnect]);
 
   /* ─────────────────────────────────────────────
      Derived Values
@@ -111,6 +116,27 @@ const LiveCallWebRTC = () => {
     if (remoteAudioRef.current) {
       remoteAudioRef.current.muted = !remoteAudioRef.current.muted;
       setIsRemoteMuted(!remoteAudioRef.current.muted);
+    }
+  };
+
+  const handleStartCall = async () => {
+    try {
+      setStartingCall(true);
+      console.log('📞 Starting call...');
+      
+      // Request microphone permission and connect
+      await connect();
+      
+      setCallStarted(true);
+      console.log('✅ Call started successfully');
+    } catch (err) {
+      console.error('❌ Failed to start call:', err);
+      
+      // Show user-friendly error
+      const errorMsg = err.userMessage || err.message || 'Failed to start call';
+      alert(`Error: ${errorMsg}`);
+    } finally {
+      setStartingCall(false);
     }
   };
 
@@ -182,6 +208,67 @@ const LiveCallWebRTC = () => {
       />
 
       <div className="max-w-7xl mx-auto space-y-6">
+
+        {/* Start Call Screen */}
+        {!callStarted && !isConnected && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex items-center justify-center min-h-[70vh]"
+          >
+            <GlassCard className="p-12 text-center max-w-md">
+              <div className="mb-6">
+                <div className="text-6xl mb-4">
+                  {role === 'operator' ? '👤' : '☠️'}
+                </div>
+                <h2 className="text-3xl font-bold text-white mb-2">
+                  {role === 'operator' ? 'Operator Mode' : 'Scammer Mode'}
+                </h2>
+                <p className="text-gray-400">
+                  Room ID: {callId}
+                </p>
+              </div>
+
+              {error && (
+                <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+                  <p className="font-semibold mb-1">⚠️ Error</p>
+                  <p>{error}</p>
+                </div>
+              )}
+
+              <button
+                onClick={handleStartCall}
+                disabled={startingCall}
+                className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-4 px-8 rounded-xl text-lg transition-all transform hover:scale-105 disabled:scale-100 flex items-center justify-center gap-3"
+              >
+                {startingCall ? (
+                  <>
+                    <Loader className="animate-spin" size={24} />
+                    Starting Call...
+                  </>
+                ) : (
+                  <>
+                    🎙️ Start Call
+                  </>
+                )}
+              </button>
+
+              <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-200">
+                <p className="font-semibold mb-2">📋 Before you start:</p>
+                <ul className="text-left space-y-1 text-xs">
+                  <li>✓ Allow microphone access when prompted</li>
+                  <li>✓ Use headphones to prevent echo</li>
+                  <li>✓ Ensure stable internet connection</li>
+                  <li>✓ Real-time AI transcription will start automatically</li>
+                </ul>
+              </div>
+            </GlassCard>
+          </motion.div>
+        )}
+
+        {/* Main Call Interface - Only show when connected */}
+        {(callStarted || isConnected) && (
+          <>
 
         {/* Audio Enable Banner */}
         {audioNeedsEnable && isPeerConnected && (
@@ -467,6 +554,10 @@ const LiveCallWebRTC = () => {
             </GlassCard>
           )}
         </div>
+
+        </>
+        )}
+
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ Uses StorageService (MinIO / local fallback) for persistence.
 """
 
 import os
+import io
 import base64
 import hashlib
 from pathlib import Path

@@ -230,6 +230,12 @@ class WebRTCService {
    */
   async startLocalStream() {
     try {
+      // Check if we already have a local stream
+      if (this.localStream && this.localStream.active) {
+        console.log('✅ Local stream already active, reusing...');
+        return this.localStream;
+      }
+      
       console.log(`🎤 Requesting microphone access for ${this.role}...`);
       
       this.localStream = await navigator.mediaDevices.getUserMedia({
@@ -263,11 +269,25 @@ class WebRTCService {
       
     } catch (error) {
       console.error(`❌ Failed to get microphone for ${this.role}:`, error);
+      
+      // Provide user-friendly error messages
+      let errorMessage = 'Failed to access microphone';
+      
       if (error.name === 'NotAllowedError') {
+        errorMessage = 'Microphone permission denied. Please allow microphone access and try again.';
         console.error('🚫 Microphone permission denied by user');
       } else if (error.name === 'NotFoundError') {
+        errorMessage = 'No microphone device found. Please connect a microphone and try again.';
         console.error('🔍 No microphone device found');
+      } else if (error.name === 'AbortError') {
+        errorMessage = 'Microphone request was cancelled. Please try again.';
+        console.error('⛔ getUserMedia request was aborted');
+      } else if (error.name === 'NotReadableError') {
+        errorMessage = 'Microphone is being used by another application. Please close other apps using the microphone.';
+        console.error('🔒 Microphone is already in use');
       }
+      
+      error.userMessage = errorMessage;
       throw error;
     }
   }
