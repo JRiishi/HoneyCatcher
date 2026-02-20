@@ -636,9 +636,12 @@ async def provide_ai_coaching(call_id: str, session: CallSession):
         # Send coaching to operator
         await call_manager.send_to_operator(call_id, {
             "type": "ai_coaching",
+            "intent": coaching.get("intent", "Unknown"),
+            "confidence": coaching.get("confidence", 0.0),
+            "reasoning": coaching.get("reasoning", ""),
             "suggestions": coaching.get("suggestions", []),
             "recommended_response": coaching.get("recommended_response"),
-            "recommended_audio": audio_data,  # Include AI-generated audio
+            "recommended_audio": audio_data,
             "warning": coaching.get("warning"),
             "timestamp": datetime.utcnow().isoformat()
         })

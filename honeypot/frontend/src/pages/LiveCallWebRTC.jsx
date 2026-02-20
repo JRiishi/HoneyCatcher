@@ -1,7 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, TestTube, Loader } from 'lucide-react';
+import { 
+  Mic, MicOff, Phone, PhoneOff, Shield, ShieldAlert, 
+  Activity, Zap, Lock, Unlock, Radio, Signal, MapPin, 
+  User, Database, Terminal, AlertTriangle, Fingerprint, 
+  CreditCard, Globe, StopCircle, RefreshCw, Volume2, VolumeX,
+  Bot, CircuitBoard, Cpu, FileText, Brain, Target, BarChart2
+} from 'lucide-react';
 import { useWebRTC } from '../hooks/useWebRTC';
 import GlassCard from '../components/GlassCard';
 import API from '../services/api';
@@ -15,20 +21,21 @@ const LiveCallWebRTC = () => {
   const roleParam = searchParams.get('role');
   const role = roleParam === 'scammer' ? 'scammer' : 'operator';
 
+  // UI State
   const [callInfo, setCallInfo] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
-  const [isRemoteMuted, setIsRemoteMuted] = useState(false);
   const [remoteVolume, setRemoteVolume] = useState(1.0);
-  const [showStats, setShowStats] = useState(false);
+  const [isRemoteMuted, setIsRemoteMuted] = useState(false);
+  const [duration, setDuration] = useState(0);
   const [audioNeedsEnable, setAudioNeedsEnable] = useState(true);
-  const [testingVT, setTestingVT] = useState(false);
-  const [vtResults, setVtResults] = useState(null);
-  const [vtError, setVtError] = useState(null);
   const [callStarted, setCallStarted] = useState(false);
   const [startingCall, setStartingCall] = useState(false);
   const [callEnded, setCallEnded] = useState(false);
   const [reportData, setReportData] = useState(null);
+  
   const isMounted = useRef(true);
+  const transcriptEndRef = useRef(null);
+  const timerRef = useRef(null);
 
   const {
     isConnected,
@@ -49,150 +56,46 @@ const LiveCallWebRTC = () => {
   } = useWebRTC(callId, role);
 
   /* ─────────────────────────────────────────────
-     Lifecycle
+     Lifecycle & Effects
   ───────────────────────────────────────────── */
 
   useEffect(() => {
     isMounted.current = true;
-
-    if (!callId) {
-      navigate('/dashboard');
-      return;
-    }
+    if (!callId) navigate('/dashboard');
 
     const fetchCallInfo = async () => {
       try {
         const res = await API.get(`/call/info/${callId}`);
-        if (isMounted.current) {
-          setCallInfo(res.data);
-        }
+        if (isMounted.current) setCallInfo(res.data);
       } catch (err) {
         console.error('Failed to fetch call info:', err);
       }
     };
-
     fetchCallInfo();
 
     return () => {
       isMounted.current = false;
-      if (callStarted) {
-        disconnect();
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (callStarted) disconnect();
     };
   }, [callId, navigate, callStarted, disconnect]);
 
-  /* ─────────────────────────────────────────────
-     Derived Values
-  ───────────────────────────────────────────── */
-
-  const connectionLabel = useMemo(() => {
-    if (connectionState === 'connected') return 'text-green-400';
-    if (connectionState === 'connecting') return 'text-yellow-400';
-    return 'text-red-400';
-  }, [connectionState]);
-
-  const threatColor = useMemo(() => {
-    if (intelligence.threatLevel < 0.3) return 'bg-green-500';
-    if (intelligence.threatLevel < 0.7) return 'bg-yellow-500';
-    return 'bg-red-500';
-  }, [intelligence.threatLevel]);
-
-  /* ─────────────────────────────────────────────
-     Handlers
-  ───────────────────────────────────────────── */
-
-  const handleEndCall = async () => {
-    try {
-      const res = await API.post(`/webrtc/room/${callId}/end`);
-      if (res.data?.report) {
-        setReportData(res.data.report);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      disconnect();
-      setCallEnded(true);
+  // Duration Timer
+  useEffect(() => {
+    if (callStarted && !callEnded) {
+      timerRef.current = setInterval(() => {
+        setDuration(prev => prev + 1);
+      }, 1000);
     }
-  };
+    return () => clearInterval(timerRef.current);
+  }, [callStarted, callEnded]);
 
-  const handleToggleMute = () => {
-    toggleMute();
-    setIsMuted(prev => !prev);
-  };
+  // Auto-scroll transcript
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [transcripts]);
 
-  const handleToggleRemoteMute = () => {
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.muted = !remoteAudioRef.current.muted;
-      setIsRemoteMuted(!remoteAudioRef.current.muted);
-    }
-  };
-
-  const handleStartCall = async () => {
-    try {
-      setStartingCall(true);
-      console.log('📞 Starting call...');
-      
-      // Request microphone permission and connect
-      await connect();
-      
-      setCallStarted(true);
-      console.log('✅ Call started successfully');
-    } catch (err) {
-      console.error('❌ Failed to start call:', err);
-      
-      // Show user-friendly error
-      const errorMsg = err.userMessage || err.message || 'Failed to start call';
-      alert(`Error: ${errorMsg}`);
-    } finally {
-      setStartingCall(false);
-    }
-  };
-
-  const handleRemoteVolumeChange = (e) => {
-    const newVolume = parseFloat(e.target.value);
-    setRemoteVolume(newVolume);
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.volume = newVolume;
-    }
-  };
-
-  const handleEnableAudio = async () => {
-    if (remoteAudioRef.current) {
-      try {
-        console.log('🔊 Attempting to enable audio playback...');
-        await remoteAudioRef.current.play();
-        setAudioNeedsEnable(false);
-        console.log('✅ Audio enabled successfully');
-      } catch (err) {
-        console.error('❌ Failed to enable audio:', err);
-      }
-    }
-  };
-
-  const handleTestVirusTotal = async () => {
-    setTestingVT(true);
-    setVtError(null);
-    setVtResults(null);
-
-    try {
-      console.log('🧪 Testing VirusTotal with sample URLs...');
-      const response = await API.post('/test-virustotal', {
-        urls: [
-          'http://malware.testing.google.test/testing/malware/',
-          'https://www.google.com'
-        ]
-      });
-      console.log('✅ VirusTotal test results:', response.data);
-      setVtResults(response.data);
-    } catch (error) {
-      console.error('❌ VirusTotal test failed:', error);
-      setVtError(error.response?.data?.detail || error.message);
-    } finally {
-      setTestingVT(false);
-    }
-  };
-
-  // Update remote audio settings whenever they change
+  // Update remote audio refs
   useEffect(() => {
     if (remoteAudioRef?.current) {
       remoteAudioRef.current.volume = remoteVolume;
@@ -201,527 +104,561 @@ const LiveCallWebRTC = () => {
   }, [remoteVolume, isRemoteMuted, remoteAudioRef]);
 
   /* ─────────────────────────────────────────────
-     UI
+     Handlers
   ───────────────────────────────────────────── */
 
+  const handleStartCall = async () => {
+    try {
+      setStartingCall(true);
+      await connect();
+      setCallStarted(true);
+      // Auto-enable audio context usually requires user gesture, 
+      // but we are in a click handler here so it might work.
+      // We still keep the 'Enable Audio' banner just in case.
+    } catch (err) {
+      console.error('Failed to start:', err);
+      alert(`Error: ${err.message}`);
+    } finally {
+      setStartingCall(false);
+    }
+  };
+
+  const handleEndCall = async () => {
+    try {
+      const res = await API.post(`/webrtc/room/${callId}/end`);
+      if (res.data?.report) setReportData(res.data.report);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCallEnded(true);
+      disconnect();
+    }
+  };
+
+  const handleEnableAudio = async () => {
+    if (remoteAudioRef.current) {
+      try {
+        await remoteAudioRef.current.play();
+        setAudioNeedsEnable(false);
+      } catch (err) {
+        console.error('Audio enable failed:', err);
+      }
+    }
+  };
+
+  /* ─────────────────────────────────────────────
+     UI Helpers
+  ───────────────────────────────────────────── */
+
+  const formatDuration = (secs) => {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const threatColor = intelligence.threatLevel > 0.7 ? 'text-red-500' : 
+                      intelligence.threatLevel > 0.4 ? 'text-yellow-500' : 'text-green-500';
+
+  const threatBg = intelligence.threatLevel > 0.7 ? 'bg-red-500/20' : 
+                   intelligence.threatLevel > 0.4 ? 'bg-yellow-500/20' : 'bg-green-500/20';
+
+  const isAI = aiMode === 'ai_only';
+
   return (
-    <div className="min-h-screen bg-background py-8 px-4">
+    <div className={`min-h-screen transition-colors duration-700 ${isAI ? 'bg-[#0a1410]' : 'bg-[#050505]'} text-gray-100 font-sans overflow-hidden relative`}>
+      
+      {/* Background Ambience */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className={`absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full blur-[120px] opacity-20 transition-colors duration-700 ${isAI ? 'bg-emerald-600' : 'bg-teal-600'}`} />
+        <div className={`absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full blur-[100px] opacity-20 transition-colors duration-700 ${isAI ? 'bg-teal-600' : 'bg-emerald-600'}`} />
+        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.03]" />
+      </div>
 
-      {/* Hidden Remote Audio Element - controlled via UI buttons below */}
-      <audio
-        ref={remoteAudioRef}
-        autoPlay
-        playsInline
-        className="hidden"
-      />
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
-      <div className="max-w-7xl mx-auto space-y-6">
-
-        {/* Start Call Screen */}
-        {!callStarted && !isConnected && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex items-center justify-center min-h-[70vh]"
-          >
-            <GlassCard className="p-12 text-center max-w-md">
-              <div className="mb-6">
-                <div className="text-6xl mb-4">
-                  {role === 'operator' ? '👤' : '☠️'}
-                </div>
-                <h2 className="text-3xl font-bold text-white mb-2">
-                  {role === 'operator' ? 'Operator Mode' : 'Scammer Mode'}
-                </h2>
-                <p className="text-gray-400">
-                  Room ID: {callId}
-                </p>
-              </div>
-
-              {error && (
-                <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
-                  <p className="font-semibold mb-1">⚠️ Error</p>
-                  <p>{error}</p>
-                </div>
-              )}
-
-              <button
-                onClick={handleStartCall}
-                disabled={startingCall}
-                className="w-full bg-green-500 hover:bg-green-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-4 px-8 rounded-xl text-lg transition-all transform hover:scale-105 disabled:scale-100 flex items-center justify-center gap-3"
-              >
-                {startingCall ? (
-                  <>
-                    <Loader className="animate-spin" size={24} />
-                    Starting Call...
-                  </>
-                ) : (
-                  <>
-                    🎙️ Start Call
-                  </>
-                )}
-              </button>
-
-              <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-200">
-                <p className="font-semibold mb-2">📋 Before you start:</p>
-                <ul className="text-left space-y-1 text-xs">
-                  <li>✓ Allow microphone access when prompted</li>
-                  <li>✓ Use headphones to prevent echo</li>
-                  <li>✓ Ensure stable internet connection</li>
-                  <li>✓ Real-time AI transcription will start automatically</li>
-                </ul>
-              </div>
-            </GlassCard>
-          </motion.div>
-        )}
-
-        {/* Main Call Interface - Only show when connected */}
-        {(callStarted || isConnected) && !callEnded && (
-          <>
-
-        {/* Audio Enable Banner */}
-        {audioNeedsEnable && isPeerConnected && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-yellow-500/20 border-2 border-yellow-500/50 rounded-lg p-4"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <span className="text-2xl">🔊</span>
-                <div>
-                  <p className="text-white font-semibold">Enable Audio Playback</p>
-                  <p className="text-yellow-200 text-sm">Click the button to hear the other person</p>
-                </div>
-              </div>
-              <button
-                onClick={handleEnableAudio}
-                className="bg-yellow-500 hover:bg-yellow-600 text-black font-semibold px-6 py-2 rounded-lg transition-colors"
-              >
-                Enable Audio
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-        {/* HEADER */}
-        <GlassCard className="p-6">
-          <div className="flex items-center justify-between">
-
-            <div>
-              <h1 className="text-2xl font-bold text-white">
-                Live Call — {role === 'operator' ? '👤 Operator' : '☠️ Scammer'}
-              </h1>
-              <p className="text-gray-400 text-sm mt-1">
-                {isPeerConnected
-                  ? '🔗 Peer Connected'
-                  : isConnected
-                    ? '⏳ Waiting for peer...'
-                    : '🔌 Connecting...'}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-right">
-                <div className="text-gray-400 text-xs">Connection</div>
-                <div className={`font-medium ${connectionLabel}`}>
-                  {connectionState}
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowStats(s => !s)}
-                className="px-3 py-2 bg-white/10 rounded text-white text-sm"
-              >
-                {showStats ? 'Hide Stats' : 'Stats'}
-              </button>
-
-              <button
-                onClick={handleEndCall}
-                className="px-4 py-2 bg-red-500 hover:bg-red-600 rounded text-white font-medium"
-              >
-                End Call
-              </button>
-            </div>
+      {/* ──────────────── Header ──────────────── */}
+      <header className="fixed top-0 inset-x-0 h-16 border-b border-white/5 bg-background/60 backdrop-blur-xl z-50 flex items-center justify-between px-6">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full animate-pulse ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="font-mono text-sm tracking-wider text-gray-400">
+              {isConnected ? 'LIVE_SECURE_LINK' : 'DISCONNECTED'}
+            </span>
           </div>
+          <div className="h-4 w-px bg-white/10" />
+          <div className="flex items-center gap-2 text-sm text-gray-400 font-mono">
+            <Lock size={14} className="text-gray-500" />
+            <span>ID: {callId}</span>
+          </div>
+        </div>
 
-          {error && (
-            <div className="mt-4 p-3 bg-red-500/20 border border-red-500 rounded text-red-200 text-sm">
-              ⚠ {error}
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/5 backdrop-blur-md">
+           <span className="font-mono font-bold text-red-500 animate-pulse text-sm">REC</span>
+           <span className="font-mono text-sm w-16 text-center">{formatDuration(duration)}</span>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {isAI && (
+             <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+               <Cpu size={14} className="text-emerald-400 animate-pulse" />
+               <span className="text-xs font-bold text-emerald-400 tracking-wider">AI AGENT ACTIVE</span>
+             </div>
+          )}
+          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/5">
+            <Shield size={14} className={threatColor} />
+            <span className={`text-xs font-bold ${threatColor}`}>
+              THREAT: {Math.round(intelligence.threatLevel * 100)}%
+            </span>
+          </div>
+        </div>
+      </header>
+
+
+      {/* ──────────────── Main Content ──────────────── */}
+      <main className="pt-20 pb-24 px-6 h-screen flex gap-6 box-border">
+        
+        {/* Left Column: Intelligence Dashboard */}
+        <div className="w-80 flex-shrink-0 flex flex-col gap-4 overflow-y-auto pb-4 no-scrollbar hidden lg:flex">
+          
+          {/* Status Card */}
+          <GlassCard className="p-4 relative overflow-hidden group">
+            <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Signal Status</h3>
+              <Signal size={14} className={isPeerConnected ? 'text-emerald-400' : 'text-yellow-400'} />
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                 <span className="text-gray-500">Video</span>
+                 <span className="text-gray-300">Disabled</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                 <span className="text-gray-500">Audio</span>
+                 <span className={isPeerConnected ? 'text-emerald-400' : 'text-red-400'}>
+                    {isPeerConnected ? 'Connected' : 'Waiting'}
+                 </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                 <span className="text-gray-500">Latency</span>
+                 <span className="font-mono text-gray-300">24ms</span>
+              </div>
+            </div>
+          </GlassCard>
+
+          {/* Intelligence Stream */}
+          <GlassCard className="flex-1 p-0 flex flex-col overflow-hidden">
+             <div className="p-4 border-b border-white/5 bg-white/[0.02]">
+               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                 <Radio size={14} className="text-emerald-400" />
+                 Live Intel Stream
+               </h3>
+             </div>
+             
+             <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <AnimatePresence>
+                  {intelligence.entities.length === 0 && (
+                    <motion.div 
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                      className="text-center py-8 text-gray-600 text-xs italic"
+                    >
+                      Listening for intel...
+                    </motion.div>
+                  )}
+                  {[...intelligence.entities].reverse().map((entity, idx) => (
+                    <motion.div
+                      key={`${entity.value}-${idx}`}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="p-3 rounded bg-white/5 border border-white/5 hover:border-emerald-500/30 transition-colors group"
+                    >
+                       <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                            {entity.type.replace('_', ' ')}
+                          </span>
+                          <span className="text-[10px] text-gray-500 font-mono">
+                            {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </span>
+                       </div>
+                       <div className="text-sm font-mono text-gray-200 break-all select-all">
+                          {entity.type === 'url' ? (
+                            <div className="flex items-center gap-2">
+                              <Globe size={12} className="text-gray-400" />
+                              {entity.value}
+                            </div>
+                          ) : entity.type.includes('phone') ? (
+                            <div className="flex items-center gap-2">
+                              <Phone size={12} className="text-gray-400" />
+                              {entity.value}
+                            </div>
+                          ) : (
+                            entity.value
+                          )}
+                       </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+             </div>
+          </GlassCard>
+
+           {/* Tactics Detected */}
+           <GlassCard className="p-4 min-h-[120px]">
+             <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+               <AlertTriangle size={14} className="text-orange-400" />
+               Tactics Detected
+             </h3>
+             <div className="flex flex-wrap gap-2">
+               {intelligence.tactics.length > 0 ? intelligence.tactics.map((tactic, i) => (
+                 <span key={i} className="px-2 py-1 rounded bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-bold">
+                   {tactic}
+                 </span>
+               )) : (
+                 <span className="text-gray-600 text-xs italic">No tactics flagged yet</span>
+               )}
+             </div>
+           </GlassCard>
+        </div>
+
+
+        {/* Center Column: Transcript & Live View */}
+        <div className="flex-1 flex flex-col gap-4 h-full overflow-hidden">
+          
+          {/* Not Started State */}
+          {!callStarted && !callEnded && (
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <GlassCard className="max-w-md w-full p-8 text-center relative overflow-hidden">
+                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-emerald-500 to-transparent" />
+                 <div className="mb-6 mx-auto w-20 h-20 rounded-full bg-emerald-500/10 flex items-center justify-center ring-1 ring-emerald-500/50">
+                    <Phone size={32} className="text-emerald-400" />
+                 </div>
+                 <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400">
+                   Secure Line Ready
+                 </h2>
+                 <p className="text-gray-500 text-sm mt-2 mb-8">
+                   Establish a WEBRTC encrypted connection for ID {callId}. <br/>
+                   All audio will be transcribed and analyzed in real-time.
+                 </p>
+                 <button 
+                  onClick={handleStartCall}
+                  disabled={startingCall}
+                  className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-2 group"
+                 >
+                   {startingCall ? (
+                     <RefreshCw className="animate-spin text-gray-400" />
+                   ) : (
+                     <span className="flex items-center gap-2 group-hover:gap-3 transition-all">
+                       Initialize Connection <Phone size={16} fill="currentColor" />
+                     </span>
+                   )}
+                 </button>
+              </GlassCard>
             </div>
           )}
-        </GlassCard>
 
-        {/* MAIN GRID */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Call Ended State */}
+          {callEnded && reportData && (
+             <div className="flex-1 overflow-y-auto">
+               <GlassCard className="p-8 max-w-2xl mx-auto">
+                 <div className="text-center mb-8">
+                   <div className="mx-auto w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4">
+                     <FileText size={32} className="text-emerald-400" />
+                   </div>
+                   <h2 className="text-3xl font-bold">Session Report</h2>
+                   <p className="text-gray-500">ID: {reportData.call_id}</p>
+                 </div>
+                 
+                 <div className="grid grid-cols-3 gap-4 mb-8">
+                   <div className="p-4 rounded-lg bg-white/5 text-center">
+                      <div className="text-sm text-gray-500">Duration</div>
+                      <div className="text-xl font-mono">{reportData.duration_seconds}s</div>
+                   </div>
+                   <div className="p-4 rounded-lg bg-white/5 text-center">
+                      <div className="text-sm text-gray-500">Threat</div>
+                      <div className={`text-xl font-bold ${threatColor}`}>
+                        {(reportData.threat_level * 100).toFixed(0)}%
+                      </div>
+                   </div>
+                   <div className="p-4 rounded-lg bg-white/5 text-center">
+                      <div className="text-sm text-gray-500">Entities</div>
+                      <div className="text-xl font-bold text-emerald-400">
+                        {reportData.entities?.length || 0}
+                      </div>
+                   </div>
+                 </div>
 
-          {/* AUDIO CONTROL - OPERATOR ONLY */}
-          {role === 'operator' && (
-          <GlassCard className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-white">🎤 Audio Control</h2>
+                 <div className="space-y-4">
+                    <h3 className="font-bold border-b border-white/10 pb-2">Full Transcript</h3>
+                    <div className="bg-black/30 p-4 rounded-lg font-mono text-sm max-h-96 overflow-y-auto space-y-2">
+                       {reportData.transcript.map((t, i) => (
+                         <div key={i} className="flex gap-2">
+                            <span className={t.speaker === 'scammer' ? 'text-red-400' : 'text-emerald-400'}>
+                              [{t.speaker.toUpperCase()}]:
+                            </span>
+                            <span className="text-gray-300">{t.text}</span>
+                         </div>
+                       ))}
+                    </div>
+                 </div>
+                 
+                 <div className="mt-8 flex justify-center">
+                   <button 
+                     onClick={() => navigate('/dashboard')}
+                     className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-lg font-bold"
+                   >
+                     Return to Dashboard
+                   </button>
+                 </div>
+               </GlassCard>
+             </div>
+          )}
 
-            {/* Microphone Control */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm text-gray-300">
-                <span>🎤 Microphone</span>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${isMuted ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
-                  {isMuted ? 'Muted' : 'Active'}
-                </span>
+          {/* Active Call State */}
+          {callStarted && !callEnded && (
+            <>
+              {/* Transcript Window */}
+              <GlassCard className="flex-1 overflow-hidden flex flex-col relative">
+                 {/* Visualizer Header */}
+                 <div className="absolute top-0 inset-x-0 h-16 bg-gradient-to-b from-background/80 to-transparent z-10 pointer-events-none" />
+                 
+                 {/* Chat Area */}
+                 <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
+                    {transcripts.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-gray-600 space-y-4 opacity-50">
+                         <div className="relative">
+                            <div className="absolute inset-0 bg-emerald-500 blur-xl opacity-20 animate-pulse" />
+                            <Activity size={48} />
+                         </div>
+                         <p className="font-mono text-xs tracking-widest uppercase">Awaiting Audio Stream...</p>
+                      </div>
+                    ) : (
+                      transcripts.map((t, i) => {
+                        const isScammer = t.speaker === 'scammer';
+                        const isAIResponse = t.speaker === 'ai'; // AI responses show as AI
+                        // Actually our new backend logic sets speaker='ai' for AI turns
+                        
+                        // Check if it's the operator (or AI mode operator)
+                        const isMe = !isScammer; 
+
+                        return (
+                          <motion.div 
+                            key={i}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div className={`max-w-[80%] rounded-2xl p-4 relative group ${
+                              isMe 
+                                ? isAIResponse 
+                                  ? 'bg-gradient-to-br from-emerald-600/30 to-emerald-800/30 border border-emerald-500/30 text-emerald-100 rounded-tr-none'
+                                  : 'bg-gradient-to-br from-teal-600/20 to-teal-800/20 border border-teal-500/20 rounded-tr-none'
+                                : 'bg-white/5 border border-white/5 rounded-tl-none'
+                            }`}>
+                               {/* Label */}
+                               <div className={`text-[10px] font-bold uppercase mb-1 tracking-wider ${
+                                 isMe 
+                                  ? isAIResponse ? 'text-emerald-400' : 'text-teal-400' 
+                                  : 'text-red-400'
+                               }`}>
+                                 {isAIResponse ? 'AGENTS (AI)' : isMe ? 'YOU (OPERATOR)' : 'SCAMMER'}
+                               </div>
+                               
+                               {/* Text */}
+                               <p className="text-sm leading-relaxed text-shadow-sm">
+                                 {t.text}
+                               </p>
+                               
+                               {/* Timestamp */}
+                               <div className="absolute -bottom-5 text-[10px] text-gray-600 font-mono opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                  {new Date(t.timestamp).toLocaleTimeString()} • {t.confidence ? `${Math.round(t.confidence * 100)}% Match` : ''}
+                               </div>
+                            </div>
+                          </motion.div>
+                        );
+                      })
+                    )}
+                    <div ref={transcriptEndRef} />
+                 </div>
+
+                 {/* AI Error Toast */}
+                 <AnimatePresence>
+                   {aiError && (
+                     <motion.div 
+                       initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                       className="absolute bottom-4 left-1/2 -translate-x-1/2 px-6 py-3 bg-red-500/90 text-white rounded-full text-sm font-bold shadow-xl border border-red-400 backdrop-blur-md flex items-center gap-2 z-20"
+                     >
+                        <AlertTriangle size={16} /> {aiError}
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
+              </GlassCard>
+            </>
+          )}
+
+          {/* AI Coaching Panel (Bottom of Center) */}
+          {aiCoaching && callStarted && !callEnded && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+              className="mt-auto"
+            >
+              <GlassCard className="p-4 border-l-4 border-l-emerald-500 bg-emerald-900/10">
+                <div className="flex justify-between items-start mb-2">
+                   <h3 className="text-xs font-bold text-emerald-400 uppercase flex items-center gap-2">
+                     <Zap size={12} fill="currentColor" /> Suggested Response
+                   </h3>
+                </div>
+                <p className="text-sm text-emerald-100 mb-3">{aiCoaching.recommended_response}</p>
+                <div className="flex gap-2">
+                   {aiCoaching.suggestions?.slice(0, 3).map((s, i) => (
+                      <span key={i} className="text-[10px] px-2 py-1 bg-black/20 rounded border border-white/5 text-gray-400">
+                        "{s}"
+                      </span>
+                   ))}
+                </div>
+              </GlassCard>
+            </motion.div>
+          )}
+
+        </div>
+
+        {/* Right Column: Neural Analysis & Strategy (New) */}
+        <div className="w-80 flex-shrink-0 flex flex-col gap-4 overflow-y-auto pb-4 no-scrollbar hidden xl:flex">
+           
+           {/* Neural Confidence */}
+           <GlassCard className="p-4">
+             <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
+                  <Brain size={14} /> Neural Confidence
+                </h3>
+             </div>
+             
+             <div className="flex flex-col items-center justify-center py-2 relative">
+                <svg className="w-24 h-24 transform -rotate-90">
+                   <circle cx="48" cy="48" r="40" className="stroke-white/5 fill-none" strokeWidth="8" />
+                   <circle 
+                     cx="48" cy="48" r="40" 
+                     className="stroke-emerald-500 fill-none transition-all duration-1000 ease-out" 
+                     strokeWidth="8"
+                     strokeDasharray="251.2"
+                     strokeDashoffset={251.2 * (1 - (aiCoaching?.confidence || 0))}
+                     strokeLinecap="round"
+                   />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center flex-col">
+                   <span className="text-xl font-bold text-white">
+                     {Math.round((aiCoaching?.confidence || 0) * 100)}%
+                   </span>
+                </div>
+             </div>
+             <div className="text-center text-[10px] text-gray-500 mt-2 uppercase tracking-wide">
+                Model Certainty
+             </div>
+           </GlassCard>
+
+           {/* Intent Prediction */}
+           <GlassCard className="p-4">
+              <h3 className="text-xs font-bold text-teal-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <Target size={14} /> Intent Prediction
+              </h3>
+              <div className="p-3 bg-white/5 rounded-lg border border-white/10">
+                 <p className="text-sm font-medium text-teal-200">
+                   {aiCoaching?.intent || "Analyzing conversation flow..."}
+                 </p>
               </div>
+           </GlassCard>
 
-              <button
-                onClick={handleToggleMute}
-                className={`w-full py-3 rounded font-medium flex justify-center items-center gap-2 transition-colors ${
-                  isMuted ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
-                } text-white`}
+           {/* Strategic Reasoning */}
+           <GlassCard className="p-4 flex-1">
+              <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <BarChart2 size={14} /> Agent Reasoning
+              </h3>
+              <div className="prose prose-invert prose-sm max-w-none">
+                 <p className="text-xs text-gray-300 leading-relaxed italic">
+                   {aiCoaching?.reasoning ? `"${aiCoaching.reasoning}"` : "Waiting for sufficient context to formulate strategy..."}
+                 </p>
+              </div>
+              
+              {aiCoaching?.warning && (
+                 <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex gap-2">
+                    <AlertTriangle size={16} className="text-red-400 flex-shrink-0" />
+                    <p className="text-xs text-red-200">{aiCoaching.warning}</p>
+                 </div>
+              )}
+           </GlassCard>
+
+        </div>
+
+        {/* ──────────────── Controls Bar (Bottom Fixed) ──────────────── */}
+        <div className="fixed bottom-0 inset-x-0 h-20 bg-[#050505]/80 backdrop-blur-xl border-t border-white/5 z-50 flex items-center justify-between px-8">
+           
+           <div className="flex items-center gap-4 w-1/3">
+             <div className="flex items-center gap-2">
+                <Volume2 size={16} className="text-gray-400" />
+                <input 
+                  type="range" min="0" max="1" step="0.1" 
+                  value={remoteVolume} onChange={(e) => setRemoteVolume(parseFloat(e.target.value))}
+                  className="w-24 h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-emerald-500" 
+                />
+             </div>
+             {audioNeedsEnable && (
+                <button onClick={handleEnableAudio} className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded animate-pulse">
+                   Enable Audio
+                </button>
+             )}
+           </div>
+
+           <div className="flex items-center gap-4 justify-center w-1/3">
+              {/* Mic Toggle */}
+              <button 
+                onClick={() => { toggleMute(); setIsMuted(!isMuted); }}
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-white/10 text-gray-400' : 'bg-white/10 hover:bg-white/20 text-white'}`}
+                title="Toggle Mic"
               >
-                {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-                {isMuted ? 'Unmute Mic' : 'Mute Mic'}
+                 {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
               </button>
-            </div>
 
-            {/* AI Takeover Toggle */}
-            {isPeerConnected && (
-              <div className="space-y-2">
-                <div className="border-t border-white/10 pt-4">
-                  <div className="flex justify-between text-sm text-gray-300 mb-2">
-                    <span>🤖 AI Takeover</span>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      aiMode === 'ai_only'
-                        ? 'bg-purple-500/30 text-purple-200'
-                        : 'bg-gray-500/20 text-gray-400'
-                    }`}>
-                      {aiMode === 'ai_only' ? 'AI Active' : 'Operator'}
+              {/* End Call */}
+              <button 
+                onClick={handleEndCall}
+                className="h-12 px-8 rounded-full bg-red-600 hover:bg-red-500 text-white font-bold transition-all shadow-lg hover:shadow-red-500/20 flex items-center gap-2"
+              >
+                 <PhoneOff size={20} /> End Session
+              </button>
+           </div>
+
+           <div className="flex items-center justify-end gap-4 w-1/3">
+              {/* AI Takeover Switch */}
+              <div className="relative group">
+                {isAI && (
+                   <div className="absolute inset-0 bg-emerald-600 blur-xl opacity-40 animate-pulse rounded-full" />
+                )}
+                <button
+                  onClick={() => setAiMode(isAI ? 'operator' : 'ai_only')}
+                  className={`relative flex items-center gap-3 pl-4 pr-5 h-12 rounded-full border transition-all duration-300 ${
+                    isAI 
+                      ? 'bg-emerald-900/80 border-emerald-500 text-emerald-100 shadow-lg shadow-emerald-500/20' 
+                      : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'
+                  }`}
+                >
+                  <div className={`p-1.5 rounded-full transition-colors ${isAI ? 'bg-emerald-500' : 'bg-gray-700'}`}>
+                    {isAI ? <Bot size={16} className="text-white" /> : <User size={16} />}
+                  </div>
+                  <div className="flex flex-col items-start leading-none">
+                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-70">
+                      {isAI ? 'AI Agent' : 'Operator'}
+                    </span>
+                    <span className="text-xs font-bold">
+                      {isAI ? 'Active' : 'Standby'}
                     </span>
                   </div>
-
-                  <button
-                    onClick={() => setAiMode(aiMode === 'ai_only' ? 'operator' : 'ai_only')}
-                    className={`w-full py-3 rounded font-semibold flex justify-center items-center gap-2 transition-all ${
-                      aiMode === 'ai_only'
-                        ? 'bg-purple-600 hover:bg-purple-700 ring-2 ring-purple-400 text-white'
-                        : 'bg-purple-500/30 hover:bg-purple-500/50 text-purple-200'
-                    }`}
-                  >
-                    {aiMode === 'ai_only' ? '🎙️ Take Back Control' : '🤖 Hand Off to AI'}
-                  </button>
-
-                  {aiError && (
-                    <div className="mt-2 p-2 bg-red-500/20 border border-red-500/40 rounded text-xs text-red-300">
-                      ⚠️ {aiError}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Remote Audio (Speaker) Control */}
-            <div className="space-y-3">
-              <div className="flex justify-between text-sm text-gray-300">
-                <span>🔊 Remote Audio</span>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  isPeerConnected 
-                    ? isRemoteMuted ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'
-                    : 'bg-gray-500/20 text-gray-400'
-                }`}>
-                  {!isPeerConnected ? 'Not Connected' : isRemoteMuted ? 'Muted' : 'Playing'}
-                </span>
-              </div>
-
-              <button
-                onClick={handleToggleRemoteMute}
-                disabled={!isPeerConnected}
-                className={`w-full py-2 rounded font-medium flex justify-center items-center gap-2 transition-colors text-sm ${
-                  !isPeerConnected
-                    ? 'bg-gray-500/30 text-gray-500 cursor-not-allowed'
-                    : isRemoteMuted 
-                      ? 'bg-red-500/40 hover:bg-red-500/60 text-red-200' 
-                      : 'bg-blue-500/40 hover:bg-blue-500/60 text-blue-200'
-                }`}
-              >
-                {isRemoteMuted ? '🔇 Unmute Speaker' : '🔊 Mute Speaker'}
-              </button>
-
-              {/* Volume Slider */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs text-gray-400">
-                  <span>Volume</span>
-                  <span>{Math.round(remoteVolume * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={remoteVolume}
-                  onChange={handleRemoteVolumeChange}
-                  disabled={!isPeerConnected}
-                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed
-                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
-                    [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:cursor-pointer"
-                />
-              </div>
-
-              {/* Recording indicator */}
-              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded text-xs text-blue-200">
-                <p>✅ Audio recording automatically every 5 seconds</p>
-                <p className="mt-1 opacity-80">Transcriptions appear instantly as you speak</p>
-              </div>
-            </div>
-          </GlassCard>
-          )}
-          {role !== 'operator' && (
-          <GlassCard className="p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-white">🎤 Audio Control</h2>
-            <div className="p-4 bg-gray-500/10 border border-gray-500/30 rounded text-center text-gray-300">
-              <p>Audio controls available for operator only</p>
-            </div>
-          </GlassCard>
-          )}
-
-          {/* TRANSCRIPT */}
-          <GlassCard className="p-6 h-[600px] flex flex-col">
-            <h2 className="text-lg font-semibold text-white mb-4">🎙 Transcript</h2>
-
-            <div className="flex-1 overflow-y-auto space-y-3">
-              {transcripts.length === 0 && (
-                <p className="text-gray-400 text-sm text-center mt-8">
-                  Waiting for conversation...
-                </p>
-              )}
-
-              <AnimatePresence>
-                {transcripts.map((t, i) => (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`p-3 rounded text-sm ${t.speaker === 'operator'
-                        ? 'bg-blue-500/20 border border-blue-500/30'
-                        : 'bg-purple-500/20 border border-purple-500/30'
-                      }`}
-                  >
-                    <div className="font-medium text-gray-200 mb-1">
-                      {t.speaker === 'operator' ? 'You' : 'Scammer'}
-                    </div>
-                    <p className="text-white">{t.text}</p>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-          </GlassCard>
-
-          {/* OPERATOR PANEL */}
-          {role === 'operator' && (
-            <GlassCard className="p-6 h-[600px] overflow-y-auto space-y-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-white">🤖 AI Intelligence</h2>
-                <button
-                  onClick={handleTestVirusTotal}
-                  disabled={testingVT}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 
-                           border border-purple-500/50 rounded text-xs font-semibold text-purple-300
-                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {testingVT ? (
-                    <>
-                      <Loader size={14} className="animate-spin" />
-                      Testing...
-                    </>
-                  ) : (
-                    <>
-                      <TestTube size={14} />
-                      Test VT
-                    </>
+                  {isAI && (
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full animate-ping" />
                   )}
                 </button>
               </div>
+           </div>
 
-              {/* VirusTotal Test Results */}
-              {vtResults && (
-                <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-lg">
-                  <h3 className="text-sm font-semibold text-purple-300 mb-3 flex items-center gap-2">
-                    <TestTube size={14} />
-                    VirusTotal Test Results
-                  </h3>
-                  <div className="space-y-2">
-                    {vtResults.results?.map((result, idx) => (
-                      <div key={idx} className="bg-black/30 p-3 rounded text-xs">
-                        <div className="font-mono text-gray-400 mb-2 break-all">{result.url}</div>
-                        <div className={`font-semibold ${result.is_safe ? 'text-green-400' : 'text-red-400'}`}>
-                          {result.summary}
-                        </div>
-                        {result.findings?.length > 0 && (
-                          <div className="mt-2 text-gray-500">
-                            {result.findings.slice(0, 3).join(', ')}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {vtError && (
-                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-                  <h3 className="text-sm font-semibold text-red-300 mb-2">Test Failed</h3>
-                  <p className="text-xs text-red-400">{vtError}</p>
-                </div>
-              )}
-
-              {/* Threat */}
-              {intelligence.threatLevel > 0 && (
-                <div>
-                  <div className="text-sm text-yellow-200 mb-2">Threat Level</div>
-                  <div className="w-full bg-gray-700 h-2 rounded overflow-hidden">
-                    <motion.div
-                      className={`h-full ${threatColor}`}
-                      animate={{ width: `${intelligence.threatLevel * 100}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Coaching */}
-              {aiCoaching?.suggestions?.length > 0 && (
-                <div className="space-y-2 text-sm">
-                  {aiCoaching.suggestions.map((s, i) => (
-                    <div key={i} className="p-2 bg-yellow-500/20 border border-yellow-500 rounded">
-                      💡 {s}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </GlassCard>
-          )}
         </div>
 
-        </>
-        )}
-
-        {/* Call Report Screen */}
-        {callEnded && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="space-y-6"
-          >
-            <GlassCard className="p-8 text-center">
-              <div className="text-5xl mb-4">📋</div>
-              <h2 className="text-3xl font-bold text-white mb-2">Call Ended</h2>
-              <p className="text-gray-400">Room: {callId}</p>
-            </GlassCard>
-
-            {reportData && (
-              <>
-                {/* Summary */}
-                <GlassCard className="p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4">📊 Call Summary</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                      <div className="text-2xl font-bold text-blue-400">{reportData.total_messages || 0}</div>
-                      <div className="text-xs text-gray-400 mt-1">Messages</div>
-                    </div>
-                    <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                      <div className="text-2xl font-bold text-green-400">{reportData.duration_seconds ? `${Math.round(reportData.duration_seconds)}s` : '—'}</div>
-                      <div className="text-xs text-gray-400 mt-1">Duration</div>
-                    </div>
-                    <div className={`p-3 border rounded-lg ${
-                      (reportData.threat_level || 0) > 0.5 
-                        ? 'bg-red-500/10 border-red-500/30' 
-                        : 'bg-yellow-500/10 border-yellow-500/30'
-                    }`}>
-                      <div className={`text-2xl font-bold ${(reportData.threat_level || 0) > 0.5 ? 'text-red-400' : 'text-yellow-400'}`}>
-                        {((reportData.threat_level || 0) * 100).toFixed(0)}%
-                      </div>
-                      <div className="text-xs text-gray-400 mt-1">Threat Level</div>
-                    </div>
-                    <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
-                      <div className="text-2xl font-bold text-purple-400">{reportData.entities?.length || 0}</div>
-                      <div className="text-xs text-gray-400 mt-1">Entities Found</div>
-                    </div>
-                  </div>
-                </GlassCard>
-
-                {/* Transcript */}
-                {reportData.transcript?.length > 0 && (
-                  <GlassCard className="p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">🎙 Full Transcript</h3>
-                    <div className="max-h-[400px] overflow-y-auto space-y-2">
-                      {reportData.transcript.map((t, i) => (
-                        <div
-                          key={i}
-                          className={`p-3 rounded text-sm ${
-                            t.speaker === 'operator'
-                              ? 'bg-blue-500/15 border border-blue-500/30'
-                              : 'bg-purple-500/15 border border-purple-500/30'
-                          }`}
-                        >
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-medium text-gray-200">
-                              {t.speaker === 'operator' ? '👤 Operator' : '☠️ Scammer'}
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              {t.language?.toUpperCase()} • {t.timestamp ? new Date(t.timestamp).toLocaleTimeString() : ''}
-                            </span>
-                          </div>
-                          <p className="text-white">{t.text}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </GlassCard>
-                )}
-
-                {/* Entities & Tactics */}
-                {(reportData.entities?.length > 0 || reportData.tactics?.length > 0) && (
-                  <GlassCard className="p-6">
-                    <h3 className="text-lg font-semibold text-white mb-4">🔍 Intelligence Extracted</h3>
-                    {reportData.entities?.length > 0 && (
-                      <div className="mb-4">
-                        <h4 className="text-sm font-medium text-gray-300 mb-2">Entities</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {reportData.entities.map((e, i) => (
-                            <span key={i} className="px-2 py-1 bg-red-500/20 border border-red-500/40 rounded text-xs text-red-200">
-                              {typeof e === 'string' ? e : `${e.type}: ${e.value}`}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {reportData.tactics?.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-300 mb-2">Scam Tactics Detected</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {reportData.tactics.map((t, i) => (
-                            <span key={i} className="px-2 py-1 bg-yellow-500/20 border border-yellow-500/40 rounded text-xs text-yellow-200">
-                              ⚠️ {t}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </GlassCard>
-                )}
-              </>
-            )}
-
-            {!reportData && (
-              <GlassCard className="p-6 text-center text-gray-400">
-                <p>No report data available for this call.</p>
-              </GlassCard>
-            )}
-
-            <div className="flex justify-center">
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="px-8 py-3 bg-blue-500 hover:bg-blue-600 rounded-xl text-white font-semibold transition-colors"
-              >
-                ← Back to Dashboard
-              </button>
-            </div>
-          </motion.div>
-        )}
-
-      </div>
+      </main>
     </div>
   );
 };

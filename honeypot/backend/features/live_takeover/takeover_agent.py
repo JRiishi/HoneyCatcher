@@ -510,6 +510,9 @@ class LiveTakeoverAgent:
 
 **Output Format (JSON):**
 {{
+    "intent": "Short description of scammer's current goal (e.g. 'Extracting OTP', 'Building Rapport')",
+    "confidence": 0.95, // Float 0.0-1.0 representing confidence in this analysis
+    "reasoning": "Brief explanation of why this response is strategic (e.g. 'Feigning technical issues lowers suspicion')",
     "suggestions": ["Suggestion 1", "Suggestion 2", "Suggestion 3"],
     "recommended_response": "Complete response operator can say right now",
     "warning": "Optional warning if needed"
@@ -520,10 +523,20 @@ class LiveTakeoverAgent:
             # Parse JSON response
             try:
                 import json
-                result = json.loads(response.content)
+                # Handle potential markdown code blocks in response
+                content = response.content
+                if "```json" in content:
+                    content = content.split("```json")[1].split("```")[0].strip()
+                elif "```" in content:
+                    content = content.split("```")[1].strip()
+                
+                result = json.loads(content)
             except:
                 # Fallback if not valid JSON
                 result = {
+                    "intent": "Unknown Intent",
+                    "confidence": 0.5,
+                    "reasoning": "Analysis failed, providing generic safe fallback.",
                     "suggestions": [
                         "Ask for more specific details about their organization",
                         "Request a callback number to verify identity",
@@ -540,6 +553,9 @@ class LiveTakeoverAgent:
         except Exception as e:
             logger.error(f"Coaching generation error: {e}", exc_info=True)
             return {
+                "intent": "System Error",
+                "confidence": 0.0,
+                "reasoning": "System encountered an error generating specific coaching.",
                 "suggestions": [
                     "Keep them talking with open-ended questions",
                     "Ask for verification details",
