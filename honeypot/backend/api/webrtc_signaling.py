@@ -541,7 +541,7 @@ async def _send_ai_filler(room: WebRTCRoom):
         import base64
         from services.tts_service import tts_service
 
-        filler_text = "Hmm, ek second..."
+        filler_text = "Hmm... haan, ek second..."
         audio_bytes = await tts_service.synthesize_to_bytes(text=filler_text)
         if audio_bytes:
             audio_b64 = base64.b64encode(audio_bytes).decode()
@@ -586,7 +586,7 @@ async def _ai_response_loop(room: WebRTCRoom):
                         recent_lang = entry["language"]
                         break
 
-                # ── Bug 2 fix: fetch full conversation history from MongoDB ──
+                # Fetch full conversation history from MongoDB
                 history = []
                 try:
                     call_doc = await db.live_calls.find_one(
@@ -595,16 +595,36 @@ async def _ai_response_loop(room: WebRTCRoom):
                     )
                     if call_doc and call_doc.get("transcript"):
                         for entry in call_doc["transcript"]:
-                            speaker = entry.get("speaker", "")
-                            text = entry.get("text", "")
-                            if not text:
+                            spkr = entry.get("speaker", "")
+                            txt = entry.get("text", "")
+                            if not txt:
                                 continue
-                            if speaker == "scammer":
-                                history.append({"role": "scammer", "content": text})
-                            elif speaker in ("ai", "operator"):
-                                history.append({"role": "agent", "content": text})
+                            if spkr == "scammer":
+                                history.append({"role": "scammer", "content": txt})
+                            elif spkr == "ai":
+                                history.append({"role": "agent", "content": txt})
+                            elif spkr == "operator":
+                                # Operator turns become HumanMessage with prefix so agent
+                                # understands full exchange without confusing its own role
+                                history.append({"role": "scammer", "content": f"[Operator said]: {txt}"})
                 except Exception as db_err:
                     logger.warning(f"Failed to fetch transcript from DB, using empty history: {db_err}")
+
+                # Prepend intelligence-extraction mission context as the first AIMessage
+                # so the agent has its operational objective before processing the conversation
+                mission_context = (
+                    "MISSION CONTEXT: I am an AI honeypot impersonating a real victim. "
+                    "My primary objective is to keep this scammer engaged as long as possible "
+                    "while covertly extracting: bank account numbers, UPI IDs, phone numbers, "
+                    "scam script details, accomplice names, and attack methods. "
+                    "I must mirror the scammer's language and emotional tone exactly — "
+                    "appear confused, trusting, and hesitant as needed. "
+                    "Use stalling tactics, ask clarifying questions, and express uncertainty "
+                    "to buy time and extract more information. "
+                    "Never break character under any circumstances. "
+                    "Proactively steer toward topics that reveal extractable intelligence while appearing natural."
+                )
+                history = [{"role": "agent", "content": mission_context}] + history
 
                 # Run takeover agent with full conversation context
                 result = await takeover_agent.run(
