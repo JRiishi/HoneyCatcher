@@ -1,7 +1,7 @@
 # HoneyBadger - Complete System Architecture
 
-> **Last Updated:** February 19, 2026  
-> **Version:** 2.0 (WebRTC Implementation)  
+> **Last Updated:** February 20, 2026  
+> **Version:** 2.1 (Groq Whisper + WebRTC Audio Fix)  
 > **Status:** Production-Ready Core + Experimental Features
 
 ---
@@ -152,7 +152,8 @@ Scammers operate with impunity, targeting millions daily through phone calls, me
 | **LLM Fallback** | Google Gemini 1.5 Flash | Backup LLM | ✅ Implemented |
 | **Database** | MongoDB 7.0+ | Document store | ✅ Implemented |
 | **ODM** | Motor (async) + Pydantic | MongoDB async client | ✅ Implemented |
-| **Speech-to-Text** | Faster-Whisper (local) | Audio transcription | ✅ Implemented |
+| **Speech-to-Text (AI Agent)** | Faster-Whisper (local) | Audio transcription for AI-only calls | ✅ Implemented |
+| **Speech-to-Text (Live Calls)** | Groq Whisper API (`whisper-large-v3-turbo`) | Real-time transcription during live takeover / WebRTC calls | ✅ Implemented |
 | **Text-to-Speech** | ElevenLabs API | Voice synthesis | ✅ Implemented |
 | **Voice Cloning** | ElevenLabs Voice Design | Agent voice cloning | ✅ Implemented |
 | **Audio Processing** | pydub, ffmpeg | Audio manipulation | ✅ Implemented |
@@ -384,7 +385,8 @@ PERSONAS = {
 |---------|------|---------|--------------|--------|
 | **Intelligence Extractor** | `intelligence_extractor.py` | Extract bank accounts, UPIs, phones, URLs | Groq LLM, Regex | ✅ Implemented |
 | **Scam Detector** | `scam_detector.py` | Pattern matching, threat scoring, sentiment analysis | Groq LLM | ✅ Implemented |
-| **STT Service** | `stt_service.py` | Speech-to-text transcription | Faster-Whisper (local) | ✅ Implemented |
+| **STT Service** | `stt_service.py` | Speech-to-text for AI-agent calls | Faster-Whisper (local) — **not used for live calls** | ✅ Implemented |
+| **Streaming STT (Live)** | `streaming_stt.py` | Real-time streaming STT for live/WebRTC calls | Groq Whisper API — avoids RAM issues on Render.com | ✅ Implemented |
 | **TTS Service** | `tts_service.py` | Text-to-speech synthesis | ElevenLabs API | ✅ Implemented |
 | **Audio Processor** | `audio_processor.py` | Audio format conversion, validation | pydub, ffmpeg | ✅ Implemented |
 | **Callback Service** | `callback.py` | External webhook notifications | GUVI API | ✅ Implemented |
@@ -480,7 +482,7 @@ class VoiceChunk(BaseDoc):
 | **Session Manager** | `session_manager.py` | Manages live session state, mode switching | ✅ Implemented |
 | **Intelligence Pipeline** | `intelligence_pipeline.py` | Real-time intel extraction during live calls | ✅ Implemented |
 | **Takeover Agent** | `takeover_agent.py` | AI coaching for human operators | ✅ Implemented |
-| **Streaming STT** | `streaming_stt.py` | Real-time audio transcription with buffering | ✅ Implemented |
+| **Streaming STT** | `streaming_stt.py` | Real-time audio transcription via **Groq Whisper API** (`whisper-large-v3-turbo`), buffers chunks and transcribes at 2.5 s threshold | ✅ Implemented |
 | **Voice Clone Service** | `voice_clone_service.py` | ElevenLabs voice cloning integration | ✅ Implemented |
 | **URL Scanner** | `url_scanner.py` | VirusTotal API integration for URL analysis | ✅ Implemented |
 | **Report Generator** | `report_generator.py` | PDF/JSON reports for law enforcement | ✅ Implemented |
@@ -788,7 +790,7 @@ honeypot/frontend/
        ▼
 ┌──────────────────────────┐
 │  STT Service             │  (Backend)
-│  (Faster-Whisper)        │
+│  (Faster-Whisper)        │  ← AI-agent calls only
 │                          │
 │  1. Audio Validation     │
 │  2. Format Conversion    │
@@ -1525,12 +1527,12 @@ Response: { message: "Voice deleted" }
 | **Mobile App** | Capacitor iOS/Android projects, mobile UI | ✅ Production-ready |
 | **URL Scanning** | url_scanner.py, VirusTotal API | ✅ Production-ready |
 | **Report Generation** | report_generator.py, PDF/JSON reports | ✅ Production-ready |
+| **WebRTC Audio Transcription** | WebRTC audio capture (`webrtc.js` fixed) + Groq Whisper API live transcription (`streaming_stt.py`) | ✅ Fixed (Feb 20 2026) |
 
 ### 🔄 Partially Implemented
 
 | Feature | What's Done | What's Missing | Priority |
 |---------|-------------|----------------|----------|
-| **Audio Transcription (during P2P)** | WebRTC audio capture, Whisper STT | Audio chunk routing from frontend to backend for transcription | 🔴 High |
 | **Cloud Storage** | Local file storage works | S3/Cloudflare R2 integration | 🟡 Medium |
 | **Analytics** | Basic session metrics | Advanced analytics, heatmaps, funnel analysis | 🟢 Low |
 
@@ -1861,9 +1863,10 @@ docker run -d --network=host \
 
 ### Current Issues
 
-| Issue | Impact | Workaround | Fix Priority |
-|-------|--------|------------|--------------|
-| **Audio chunks not sent to backend in WebRTC** | No transcription during P2P calls | Manual recording | 🔴 Critical |
+| Issue | Impact | Resolution | Status |
+|-------|--------|------------|--------|
+| ~~**Audio chunks not sent to backend in WebRTC**~~ | ~~No transcription during P2P calls~~ | Fixed Feb 20 2026 — `webrtc.js` now calls `_startLocalAudioCapture()` on peer connect; uses stop/restart cycle instead of `MediaRecorder` timeslice to produce decodable WebM blobs | ✅ Resolved |
+| ~~**Local Whisper OOM on Render.com**~~ | ~~Live call transcription fails on cloud deployment~~ | Fixed Feb 20 2026 — `StreamingTranscriber` now uses Groq Whisper API (`whisper-large-v3-turbo`); `stt_service.py` (local Whisper) unchanged for AI-only calls | ✅ Resolved |
 | **No cloud storage** | Audio files stored locally | Works for dev, not scalable | 🟡 Medium |
 | **Hardcoded API key** | Security risk | Use environment variable | 🔴 High |
 | **No rate limiting** | Vulnerable to abuse | Monitor usage | 🟡 Medium |
@@ -1873,7 +1876,7 @@ docker run -d --network=host \
 
 | Limitation | Description | Mitigation |
 |------------|-------------|------------|
-| **Whisper Speed** | STT takes 1-3 seconds per chunk | Use streaming mode, smaller model (tiny) |
+| **Groq Whisper Latency** | API call ~0.5–1 s per 2.5 s chunk | Acceptable; chunk buffer absorbs round-trip |
 | **LLM Latency** | Groq response: 0.5-2 seconds | Acceptable for chat, cache common responses |
 | **WebRTC NAT Traversal** | Fails without TURN server | Deploy TURN server in production |
 | **Single Backend Instance** | No horizontal scaling | Use load balancer + multiple instances |
@@ -1961,7 +1964,7 @@ honeypot/frontend/
 |------|------------|
 | **Honeypot** | Decoy system designed to attract and engage attackers |
 | **LangGraph** | Framework for building stateful, graph-based LLM agents |
-| **Whisper** | OpenAI's speech-to-text model (local: faster-whisper) |
+| **Whisper** | OpenAI's speech-to-text model. Used via **Groq Whisper API** (`whisper-large-v3-turbo`) for live/WebRTC calls; local `faster-whisper` retained for AI-agent calls |
 | **ElevenLabs** | AI voice synthesis and cloning service |
 | **WebRTC** | Web Real-Time Communication (P2P audio/video) |
 | **Socket.IO** | Real-time bidirectional event-based communication |
@@ -1991,7 +1994,8 @@ HoneyBadger is a **production-ready AI honeypot system** with advanced features 
 
 ### Immediate Priorities
 
-🔴 **Critical**: Implement audio chunk routing for WebRTC transcription  
+✅ **Resolved**: WebRTC audio chunk routing fixed in `webrtc.js` (Feb 20 2026)  
+✅ **Resolved**: Live call transcription now uses Groq Whisper API — no local model RAM required (Feb 20 2026)  
 🔴 **High**: Deploy TURN server for production WebRTC  
 🟡 **Medium**: Migrate to cloud storage (S3/R2)  
 🟡 **Medium**: Add JWT authentication  
@@ -2002,7 +2006,7 @@ HoneyBadger aims to become the **industry standard for proactive scam detection 
 
 ---
 
-**Last Updated**: February 19, 2026  
+**Last Updated**: February 20, 2026  
 **Maintained By**: HoneyBadger Development Team  
 **License**: Proprietary (GUVI Hackathon Project)
 

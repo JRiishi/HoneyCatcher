@@ -47,10 +47,10 @@ export const useWebRTC = (roomId, role = 'operator') => {
         };
         
         webrtcRef.current.onTranscription = (data) => {
-          console.log('📝 Transcription received in hook:', data);
+          console.log('%c📝 [HOOK] Transcription callback fired — adding to UI state', 'color:lime;font-weight:bold', data);
           setTranscripts(prev => {
             const updated = [...prev, data];
-            console.log(`📋 Total transcripts now: ${updated.length}`);
+            console.log(`📋 [HOOK] Total transcripts in state: ${updated.length}`);
             return updated;
           });
         };

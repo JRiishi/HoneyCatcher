@@ -308,13 +308,8 @@ async def process_transcription(room: WebRTCRoom, data: dict):
         audio_bytes = base64.b64decode(audio_base64)
         logger.info(f"🎵 {speaker.upper()}: DECODED {len(audio_bytes)} bytes ({audio_format}) from base64")
         
-        # Normalize audio chunk to WAV (required by Whisper)
+        # Attempt to normalize audio chunk to WAV
         normalized = room.normalizer.normalize_chunk(audio_bytes, source_format=audio_format)
-        
-        # Skip if normalization failed (common for incomplete streaming chunks)
-        if normalized is None:
-            logger.warning(f"⚠️ {speaker.upper()}: Normalization FAILED (incomplete or silent chunk)")
-            return
         
         # Get appropriate transcriber
         logger.info(f"🎯 {speaker.upper()}: Selecting transcriber...")
@@ -325,13 +320,20 @@ async def process_transcription(room: WebRTCRoom, data: dict):
             transcriber = room.operator_transcriber
             logger.info(f"   ✅ Using OPERATOR transcriber")
         
-        # Add chunk and check if ready
-        chunk_size_kb = len(normalized) / 1024
-        logger.info(f"📊 {speaker.upper()}: NORMALIZED to {chunk_size_kb:.1f}KB WAV, adding to transcriber buffer...")
-        is_ready = transcriber.add_chunk(normalized)
+        # Add chunk — use normalized WAV if available, otherwise raw audio
+        # (Groq Whisper API accepts webm/opus natively, no WAV conversion required)
+        if normalized is not None:
+            chunk_size_kb = len(normalized) / 1024
+            logger.info(f"📊 {speaker.upper()}: NORMALIZED to {chunk_size_kb:.1f}KB WAV, adding to buffer...")
+            is_ready = transcriber.add_chunk(normalized, audio_format="wav")
+        else:
+            chunk_size_kb = len(audio_bytes) / 1024
+            logger.info(f"📊 {speaker.upper()}: Normalization skipped, using raw {audio_format} ({chunk_size_kb:.1f}KB)")
+            is_ready = transcriber.add_chunk(audio_bytes, audio_format=audio_format)
         
         if is_ready:
-            logger.info(f"🎙️ {speaker.upper()}: Buffer ready ({len(normalized)} bytes), STARTING TRANSCRIPTION...")
+            buffered_size = len(normalized) if normalized is not None else len(audio_bytes)
+            logger.info(f"🎙️ {speaker.upper()}: Buffer ready ({buffered_size} bytes), STARTING TRANSCRIPTION...")
             result = await transcriber.transcribe_buffer()
             
             if result and result.get("text"):
@@ -601,16 +603,112 @@ async def end_webrtc_room(
     room_id: str,
     api_key: str = Depends(verify_api_key)
 ):
-    """End a WebRTC room."""
+    """End a WebRTC room, flush transcribers, and save call report."""
     room = room_manager.get_room(room_id)
+    report_data = None
+    
     if room:
+        # Flush remaining audio from transcribers
+        try:
+            op_result = await room.operator_transcriber.flush()
+            sc_result = await room.scammer_transcriber.flush()
+            
+            for result, speaker in [(op_result, "operator"), (sc_result, "scammer")]:
+                if result and result.get("text"):
+                    transcription = {
+                        "speaker": speaker,
+                        "text": result["text"],
+                        "language": result.get("language", "en"),
+                        "confidence": result.get("confidence", 0.0),
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    room.transcript.append(transcription)
+                    await db.live_calls.update_one(
+                        {"call_id": room_id},
+                        {"$push": {"transcript": transcription}}
+                    )
+        except Exception as e:
+            logger.error(f"Error flushing transcribers: {e}")
+        
         # Notify all participants
         await sio.emit('call_ended', {'room_id': room_id}, room=room_id)
         
-        # Update database
+        # Calculate duration
+        duration = (datetime.utcnow() - room.start_time).total_seconds()
+        
+        # Build report data
+        report_data = {
+            "call_id": room_id,
+            "status": "ended",
+            "duration_seconds": round(duration, 1),
+            "transcript": room.transcript,
+            "total_messages": len(room.transcript),
+            "entities": room.entities,
+            "threat_level": room.threat_level,
+            "tactics": room.tactics,
+            "start_time": room.start_time.isoformat(),
+            "end_time": datetime.utcnow().isoformat(),
+        }
+        
+        # Save final state to database
         await db.live_calls.update_one(
             {"call_id": room_id},
-            {"$set": {"status": "ended", "end_time": datetime.utcnow()}}
+            {"$set": {
+                "status": "ended",
+                "end_time": datetime.utcnow(),
+                "duration_seconds": round(duration, 1),
+                "final_transcript": room.transcript,
+                "entities": room.entities,
+                "threat_level": room.threat_level,
+                "tactics": room.tactics,
+            }}
         )
+        
+        # Clean up room from memory
+        room_manager.rooms.pop(room_id, None)
     
-    return {"message": "Room ended", "room_id": room_id}
+    return {
+        "message": "Room ended",
+        "room_id": room_id,
+        "report": report_data
+    }
+
+
+@router.get("/webrtc/room/{room_id}/report")
+async def get_webrtc_call_report(
+    room_id: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """Get report for a completed WebRTC call."""
+    from fastapi import HTTPException
+    
+    call_data = await db.live_calls.find_one({"call_id": room_id})
+    if not call_data:
+        raise HTTPException(status_code=404, detail="Call not found")
+    
+    call_data.pop("_id", None)
+    
+    start = call_data.get("start_time", datetime.utcnow())
+    end = call_data.get("end_time", datetime.utcnow())
+    transcript = call_data.get("final_transcript") or call_data.get("transcript", [])
+    
+    duration = call_data.get("duration_seconds")
+    if duration is None:
+        try:
+            duration = (end - start).total_seconds()
+        except Exception:
+            duration = 0
+    
+    return {
+        "call_id": room_id,
+        "status": call_data.get("status", "unknown"),
+        "start_time": start.isoformat() if hasattr(start, 'isoformat') else str(start),
+        "end_time": end.isoformat() if hasattr(end, 'isoformat') else str(end),
+        "duration_seconds": round(duration, 1),
+        "transcript": transcript,
+        "total_messages": len(transcript),
+        "entities": call_data.get("entities", []),
+        "threat_level": call_data.get("threat_level", 0),
+        "tactics": call_data.get("tactics", []),
+        "summary": f"Call with {len(transcript)} transcribed messages"
+    }

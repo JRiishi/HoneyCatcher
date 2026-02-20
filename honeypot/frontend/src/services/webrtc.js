@@ -214,9 +214,11 @@ class WebRTCService {
     
     // Transcription received
     this.socket.on('transcription', (data) => {
-      console.log('📝 Transcription:', data.text);
+      console.log('%c📝 [TRANSCRIPTION RECEIVED] speaker=%s text=%s', 'color:lime;font-weight:bold', data.speaker, data.text);
       if (this.onTranscription) {
         this.onTranscription(data);
+      } else {
+        console.warn('⚠️ [TRANSCRIPTION] onTranscription callback is NULL — transcription will NOT show in UI!');
       }
     });
     
@@ -391,8 +393,8 @@ class WebRTCService {
         console.warn('⚠️ onRemoteStream callback NOT registered - UI wont update!');
       }
       
-      // Start capturing remote audio for backend transcription
-      this._startRemoteAudioCapture();
+      // Remote audio: NOT captured here. Each client captures and sends its own
+      // mic audio via _startLocalAudioCapture() to avoid duplicate transcriptions.
     };
     
     // Handle connection state changes
@@ -611,16 +613,12 @@ class WebRTCService {
    * This runs IN PARALLEL with the P2P WebRTC stream
    */
   _startLocalAudioCapture() {
-    // Only operator can capture and send audio (realistic deployment)
-    if (this.role !== 'operator') {
-      console.log(`ℹ️ ${this.role} audio capture disabled (operator-only mode)`);
-      return;
-    }
-    
     if (this._localMediaRecorder) {
       console.log(`⚠️ ${this.role} local audio capture already active`);
       return;
     }
+    
+    console.log(`%c🎙️ [CAPTURE START] Starting local audio capture for role=${this.role}`, 'color:cyan;font-weight:bold');
     
     if (!this.localStream) {
       console.error(`❌ ${this.role} cannot start audio capture: no local stream`);

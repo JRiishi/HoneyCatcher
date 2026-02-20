@@ -26,6 +26,8 @@ const LiveCallWebRTC = () => {
   const [vtError, setVtError] = useState(null);
   const [callStarted, setCallStarted] = useState(false);
   const [startingCall, setStartingCall] = useState(false);
+  const [callEnded, setCallEnded] = useState(false);
+  const [reportData, setReportData] = useState(null);
   const isMounted = useRef(true);
 
   const {
@@ -98,12 +100,15 @@ const LiveCallWebRTC = () => {
 
   const handleEndCall = async () => {
     try {
-      await API.post(`/webrtc/room/${callId}/end`);
+      const res = await API.post(`/webrtc/room/${callId}/end`);
+      if (res.data?.report) {
+        setReportData(res.data.report);
+      }
     } catch (err) {
       console.error(err);
     } finally {
       disconnect();
-      navigate('/dashboard');
+      setCallEnded(true);
     }
   };
 
@@ -267,7 +272,7 @@ const LiveCallWebRTC = () => {
         )}
 
         {/* Main Call Interface - Only show when connected */}
-        {(callStarted || isConnected) && (
+        {(callStarted || isConnected) && !callEnded && (
           <>
 
         {/* Audio Enable Banner */}
@@ -556,6 +561,129 @@ const LiveCallWebRTC = () => {
         </div>
 
         </>
+        )}
+
+        {/* Call Report Screen */}
+        {callEnded && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="space-y-6"
+          >
+            <GlassCard className="p-8 text-center">
+              <div className="text-5xl mb-4">📋</div>
+              <h2 className="text-3xl font-bold text-white mb-2">Call Ended</h2>
+              <p className="text-gray-400">Room: {callId}</p>
+            </GlassCard>
+
+            {reportData && (
+              <>
+                {/* Summary */}
+                <GlassCard className="p-6">
+                  <h3 className="text-lg font-semibold text-white mb-4">📊 Call Summary</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                      <div className="text-2xl font-bold text-blue-400">{reportData.total_messages || 0}</div>
+                      <div className="text-xs text-gray-400 mt-1">Messages</div>
+                    </div>
+                    <div className="p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                      <div className="text-2xl font-bold text-green-400">{reportData.duration_seconds ? `${Math.round(reportData.duration_seconds)}s` : '—'}</div>
+                      <div className="text-xs text-gray-400 mt-1">Duration</div>
+                    </div>
+                    <div className={`p-3 border rounded-lg ${
+                      (reportData.threat_level || 0) > 0.5 
+                        ? 'bg-red-500/10 border-red-500/30' 
+                        : 'bg-yellow-500/10 border-yellow-500/30'
+                    }`}>
+                      <div className={`text-2xl font-bold ${(reportData.threat_level || 0) > 0.5 ? 'text-red-400' : 'text-yellow-400'}`}>
+                        {((reportData.threat_level || 0) * 100).toFixed(0)}%
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">Threat Level</div>
+                    </div>
+                    <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+                      <div className="text-2xl font-bold text-purple-400">{reportData.entities?.length || 0}</div>
+                      <div className="text-xs text-gray-400 mt-1">Entities Found</div>
+                    </div>
+                  </div>
+                </GlassCard>
+
+                {/* Transcript */}
+                {reportData.transcript?.length > 0 && (
+                  <GlassCard className="p-6">
+                    <h3 className="text-lg font-semibold text-white mb-4">🎙 Full Transcript</h3>
+                    <div className="max-h-[400px] overflow-y-auto space-y-2">
+                      {reportData.transcript.map((t, i) => (
+                        <div
+                          key={i}
+                          className={`p-3 rounded text-sm ${
+                            t.speaker === 'operator'
+                              ? 'bg-blue-500/15 border border-blue-500/30'
+                              : 'bg-purple-500/15 border border-purple-500/30'
+                          }`}
+                        >
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="font-medium text-gray-200">
+                              {t.speaker === 'operator' ? '👤 Operator' : '☠️ Scammer'}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {t.language?.toUpperCase()} • {t.timestamp ? new Date(t.timestamp).toLocaleTimeString() : ''}
+                            </span>
+                          </div>
+                          <p className="text-white">{t.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </GlassCard>
+                )}
+
+                {/* Entities & Tactics */}
+                {(reportData.entities?.length > 0 || reportData.tactics?.length > 0) && (
+                  <GlassCard className="p-6">
+                    <h3 className="text-lg font-semibold text-white mb-4">🔍 Intelligence Extracted</h3>
+                    {reportData.entities?.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-medium text-gray-300 mb-2">Entities</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {reportData.entities.map((e, i) => (
+                            <span key={i} className="px-2 py-1 bg-red-500/20 border border-red-500/40 rounded text-xs text-red-200">
+                              {typeof e === 'string' ? e : `${e.type}: ${e.value}`}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {reportData.tactics?.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-300 mb-2">Scam Tactics Detected</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {reportData.tactics.map((t, i) => (
+                            <span key={i} className="px-2 py-1 bg-yellow-500/20 border border-yellow-500/40 rounded text-xs text-yellow-200">
+                              ⚠️ {t}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </GlassCard>
+                )}
+              </>
+            )}
+
+            {!reportData && (
+              <GlassCard className="p-6 text-center text-gray-400">
+                <p>No report data available for this call.</p>
+              </GlassCard>
+            )}
+
+            <div className="flex justify-center">
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="px-8 py-3 bg-blue-500 hover:bg-blue-600 rounded-xl text-white font-semibold transition-colors"
+              >
+                ← Back to Dashboard
+              </button>
+            </div>
+          </motion.div>
         )}
 
       </div>

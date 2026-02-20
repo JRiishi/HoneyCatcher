@@ -53,16 +53,18 @@ class StreamingTranscriber:
         # Transcript accumulation
         self._full_transcript: List[Dict[str, Any]] = []
         self._partial_text: str = ""
+        self._chunk_format: str = "wav"  # format of buffered chunks (wav or webm)
         
         logger.info("StreamingTranscriber initialized with Groq Whisper API")
     
-    def add_chunk(self, audio_bytes: bytes, duration_ms: float = 0.0) -> bool:
+    def add_chunk(self, audio_bytes: bytes, duration_ms: float = 0.0, audio_format: str = "wav") -> bool:
         """
         Add an audio chunk to the buffer.
         
         Args:
-            audio_bytes: Raw audio data (WAV/PCM format)
+            audio_bytes: Raw audio data (WAV or raw WebM/opus)
             duration_ms: Duration of this chunk. If 0, estimated from byte length.
+            audio_format: Format of the audio data ("wav" or "webm")
             
         Returns:
             True if buffer is ready for transcription
@@ -72,6 +74,7 @@ class StreamingTranscriber:
         
         self._chunks.append(audio_bytes)
         self._chunk_count += 1
+        self._chunk_format = audio_format
         
         # Estimate duration if not provided (16kHz mono 16-bit PCM)
         if duration_ms <= 0:
@@ -93,6 +96,8 @@ class StreamingTranscriber:
         # Merge all chunks
         merged = self._merge_chunks()
         
+        logger.info(f"🚀 [TRANSCRIBE] Calling Groq Whisper API — format={self._chunk_format}, merged_size={len(merged)} bytes")
+        
         # Clear buffer
         self._chunks = []
         self._buffer_duration_ms = 0.0
@@ -106,6 +111,7 @@ class StreamingTranscriber:
         )
         
         if result and result.get("text"):
+            logger.info(f"✅ [TRANSCRIBE] Groq returned text: \"{result['text'][:80]}{'...' if len(result['text']) > 80 else ''}\"")
             # Lock language after first successful detection (only English/Hindi allowed)
             if not self._language_locked and result.get("language"):
                 detected_lang = result["language"]
@@ -142,33 +148,54 @@ class StreamingTranscriber:
         return await self.transcribe_buffer()
     
     def _merge_chunks(self) -> bytes:
-        """Merge all buffered audio chunks into a single byte sequence."""
+        """Merge buffered audio chunks into a single valid audio file."""
         if len(self._chunks) == 1:
             return self._chunks[0]
         
-        merged = bytearray()
-        for chunk in self._chunks:
-            merged.extend(chunk)
+        # For WAV chunks: use pydub to merge properly (avoid header corruption)
+        if self._chunk_format == "wav":
+            try:
+                from pydub import AudioSegment
+                combined = AudioSegment.empty()
+                for chunk in self._chunks:
+                    try:
+                        seg = AudioSegment.from_file(io.BytesIO(chunk), format="wav")
+                        combined += seg
+                    except Exception:
+                        continue
+                
+                if len(combined) == 0:
+                    return self._chunks[0]
+                
+                buf = io.BytesIO()
+                combined.export(buf, format="wav")
+                return buf.getvalue()
+            except Exception:
+                return self._chunks[0]
         
-        return bytes(merged)
+        # For non-WAV (e.g. webm): return the last chunk only
+        # (WebM containers can't be naively concatenated)
+        return self._chunks[-1]
     
     def _do_transcribe(self, audio_data: bytes) -> Dict[str, Any]:
         """Synchronous transcription via Groq Whisper API (runs in thread pool)."""
         try:
-            # Re-export through pydub to guarantee a single valid WAV
-            # (handles edge-case where _merge_chunks concatenated multiple WAVs)
-            try:
-                from pydub import AudioSegment
-                audio_seg = AudioSegment.from_file(io.BytesIO(audio_data), format="wav")
-                buf = io.BytesIO()
-                audio_seg.export(buf, format="wav")
-                audio_data = buf.getvalue()
-            except Exception:
-                pass  # fall back to raw bytes if re-export fails
+            file_ext = self._chunk_format  # "wav" or "webm"
+            
+            # For WAV: re-export through pydub to guarantee a single valid WAV
+            if file_ext == "wav":
+                try:
+                    from pydub import AudioSegment
+                    audio_seg = AudioSegment.from_file(io.BytesIO(audio_data), format="wav")
+                    buf = io.BytesIO()
+                    audio_seg.export(buf, format="wav")
+                    audio_data = buf.getvalue()
+                except Exception:
+                    pass  # fall back to raw bytes if re-export fails
 
             # Build Groq API kwargs
             kwargs = {
-                "file": ("audio.wav", audio_data),
+                "file": (f"audio.{file_ext}", audio_data),
                 "model": "whisper-large-v3-turbo",
                 "response_format": "verbose_json",
             }
