@@ -255,6 +255,66 @@ class TTSService:
             "error": "TTS service unavailable"
         }
     
+    async def synthesize_to_bytes(
+        self,
+        text: str,
+        voice_id: Optional[str] = None,
+    ) -> Optional[bytes]:
+        """
+        Synthesize speech and return raw audio bytes (mp3) in memory.
+        Used for transient live WebRTC injection — no file save, no Cloudinary.
+
+        Args:
+            text: Text to synthesize
+            voice_id: ElevenLabs voice ID (defaults to Rachel)
+
+        Returns:
+            Raw mp3 bytes, or None on failure
+        """
+        import httpx
+
+        api_key = getattr(settings, 'ELEVENLABS_API_KEY', '')
+        if not api_key:
+            logger.error("ElevenLabs API key not configured for synthesize_to_bytes")
+            return None
+
+        if not voice_id:
+            voice_id = "21m00Tcm4TlvDq8ikWAM"  # Rachel (default free voice)
+
+        model = getattr(settings, 'ELEVENLABS_MODEL', 'eleven_turbo_v2_5')
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                    json={
+                        "text": text,
+                        "model_id": model,
+                        "voice_settings": {
+                            "stability": 0.5,
+                            "similarity_boost": 0.75,
+                            "style": 0.0,
+                            "use_speaker_boost": True
+                        }
+                    },
+                    headers={
+                        "Accept": "audio/mpeg",
+                        "Content-Type": "application/json",
+                        "xi-api-key": api_key
+                    },
+                    timeout=30.0
+                )
+
+                if response.status_code == 200:
+                    logger.info(f"✅ synthesize_to_bytes: {len(response.content)} bytes")
+                    return response.content
+                else:
+                    logger.error(f"ElevenLabs API error ({response.status_code}): {response.text}")
+                    return None
+        except Exception as e:
+            logger.error(f"synthesize_to_bytes failed: {e}", exc_info=True)
+            return None
+
     def get_supported_languages(self) -> list:
         """
         Get list of supported languages

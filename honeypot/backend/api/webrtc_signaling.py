@@ -539,16 +539,12 @@ async def _send_ai_filler(room: WebRTCRoom):
     """Emit a filler phrase via TTS so operator hears something immediately on handoff."""
     try:
         import base64
-        from services.elevenlabs_service import elevenlabs_service
+        from services.tts_service import tts_service
 
         filler_text = "Hmm, ek second..."
-        tts_result = await elevenlabs_service.synthesize(
-            text=filler_text,
-            session_id=room.room_id
-        )
-        if tts_result and tts_result.get("audio_path"):
-            with open(tts_result["audio_path"], "rb") as f:
-                audio_b64 = base64.b64encode(f.read()).decode()
+        audio_bytes = await tts_service.synthesize_to_bytes(text=filler_text)
+        if audio_bytes:
+            audio_b64 = base64.b64encode(audio_bytes).decode()
             if room.operator_sid:
                 await sio.emit('audio_response', {
                     "type": "audio_response",
@@ -565,7 +561,7 @@ async def _ai_response_loop(room: WebRTCRoom):
     """Background task: consume scammer messages, generate AI response, emit audio."""
     try:
         import base64
-        from services.elevenlabs_service import elevenlabs_service
+        from services.tts_service import tts_service
         from features.live_takeover.takeover_agent import takeover_agent
 
         logger.info(f"🤖 AI response loop STARTED for room {room.room_id}")
@@ -590,10 +586,30 @@ async def _ai_response_loop(room: WebRTCRoom):
                         recent_lang = entry["language"]
                         break
 
-                # Run takeover agent
+                # ── Bug 2 fix: fetch full conversation history from MongoDB ──
+                history = []
+                try:
+                    call_doc = await db.live_calls.find_one(
+                        {"call_id": room.room_id},
+                        {"transcript": 1}
+                    )
+                    if call_doc and call_doc.get("transcript"):
+                        for entry in call_doc["transcript"]:
+                            speaker = entry.get("speaker", "")
+                            text = entry.get("text", "")
+                            if not text:
+                                continue
+                            if speaker == "scammer":
+                                history.append({"role": "scammer", "content": text})
+                            elif speaker in ("ai", "operator"):
+                                history.append({"role": "agent", "content": text})
+                except Exception as db_err:
+                    logger.warning(f"Failed to fetch transcript from DB, using empty history: {db_err}")
+
+                # Run takeover agent with full conversation context
                 result = await takeover_agent.run(
                     scammer_text=scammer_text,
-                    history=room.ai_history,
+                    history=history,
                     mode="ai_takeover",
                     language=recent_lang
                 )
@@ -605,21 +621,33 @@ async def _ai_response_loop(room: WebRTCRoom):
 
                 logger.info(f"🤖 AI response: \"{ai_text[:80]}{'...' if len(ai_text) > 80 else ''}\"")
 
-                # Update history (keep last 10 turns to avoid bloat)
-                room.ai_history.append({"role": "scammer", "content": scammer_text})
-                room.ai_history.append({"role": "agent", "content": ai_text})
-                if len(room.ai_history) > 20:
-                    room.ai_history = room.ai_history[-20:]
+                # ── Bug 2 fix: append AI response to MongoDB transcript ──
+                ai_transcript_entry = {
+                    "speaker": "ai",
+                    "text": ai_text,
+                    "language": recent_lang,
+                    "confidence": 1.0,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                room.transcript.append(ai_transcript_entry)
+                try:
+                    await db.live_calls.update_one(
+                        {"call_id": room.room_id},
+                        {"$push": {"transcript": ai_transcript_entry}},
+                        upsert=True
+                    )
+                    logger.info(f"💾 Saved AI response to MongoDB transcript")
+                except Exception as db_err:
+                    logger.error(f"Failed to save AI response to DB: {db_err}")
 
-                # TTS → base64
-                tts_result = await elevenlabs_service.synthesize(
-                    text=ai_text,
-                    session_id=room.room_id
-                )
+                # Emit transcription so operator sees AI text in real time
+                await sio.emit('transcription', ai_transcript_entry, room=room.room_id)
 
-                if tts_result and tts_result.get("audio_path"):
-                    with open(tts_result["audio_path"], "rb") as f:
-                        audio_b64 = base64.b64encode(f.read()).decode()
+                # ── Bug 1 fix: TTS → raw bytes in memory, no file / no Cloudinary ──
+                audio_bytes = await tts_service.synthesize_to_bytes(text=ai_text)
+
+                if audio_bytes:
+                    audio_b64 = base64.b64encode(audio_bytes).decode()
 
                     if room.operator_sid:
                         await sio.emit('audio_response', {
