@@ -23,19 +23,21 @@ class StreamingTranscriber:
     Real-time streaming STT that accumulates audio chunks
     and transcribes when enough audio is buffered.
     
-    Uses existing faster-whisper engine from services.stt_service.
+    Uses Groq Whisper API for cloud-friendly transcription
+    (no local model needed — avoids RAM issues on Render.com).
     """
     
     def __init__(
         self,
         buffer_threshold_ms: float = 2500.0,
         language: Optional[str] = None,
-        beam_size: int = 1  # Use beam_size=1 for speed
+        beam_size: int = 1  # kept for interface compat, not used by Groq
     ):
-        # Lazy import to avoid circular deps and keep module optional
-        from services.stt_service import stt_service
+        # Use Groq Whisper API instead of local faster-whisper model
+        from groq import Groq
+        from config import settings
         
-        self.stt = stt_service
+        self._groq_client = Groq(api_key=settings.GROQ_API_KEY)
         self.buffer_threshold_ms = buffer_threshold_ms
         # Restrict to English/Hindi only (Hinglish = code-switching between en/hi)
         self.language = language          # None = auto-detect on first chunk
@@ -52,9 +54,7 @@ class StreamingTranscriber:
         self._full_transcript: List[Dict[str, Any]] = []
         self._partial_text: str = ""
         
-        # Ensure STT model is loaded
-        if not self.stt._initialized:
-            self.stt.initialize()
+        logger.info("StreamingTranscriber initialized with Groq Whisper API")
     
     def add_chunk(self, audio_bytes: bytes, duration_ms: float = 0.0) -> bool:
         """
@@ -153,21 +153,43 @@ class StreamingTranscriber:
         return bytes(merged)
     
     def _do_transcribe(self, audio_data: bytes) -> Dict[str, Any]:
-        """Synchronous transcription (runs in thread pool)."""
+        """Synchronous transcription via Groq Whisper API (runs in thread pool)."""
         try:
-            result = self.stt.transcribe_bytes(
-                audio_data,
-                format="wav",
-                language=self.language  # Use locked language if available
-            )
-            return result
+            # Re-export through pydub to guarantee a single valid WAV
+            # (handles edge-case where _merge_chunks concatenated multiple WAVs)
+            try:
+                from pydub import AudioSegment
+                audio_seg = AudioSegment.from_file(io.BytesIO(audio_data), format="wav")
+                buf = io.BytesIO()
+                audio_seg.export(buf, format="wav")
+                audio_data = buf.getvalue()
+            except Exception:
+                pass  # fall back to raw bytes if re-export fails
+
+            # Build Groq API kwargs
+            kwargs = {
+                "file": ("audio.wav", audio_data),
+                "model": "whisper-large-v3-turbo",
+                "response_format": "verbose_json",
+            }
+            if self.language:
+                kwargs["language"] = self.language
+
+            transcription = self._groq_client.audio.transcriptions.create(**kwargs)
+
+            return {
+                "text": transcription.text or "",
+                "language": getattr(transcription, "language", self.language or "en"),
+                "confidence": 0.9,
+                "duration": getattr(transcription, "duration", 0.0) or 0.0,
+            }
         except Exception as e:
-            logger.error(f"Transcription failed: {e}", exc_info=True)
+            logger.error(f"Groq Whisper transcription failed: {e}", exc_info=True)
             return {
                 "text": "",
                 "language": self.language or "en",
                 "confidence": 0.0,
-                "duration": 0.0
+                "duration": 0.0,
             }
     
     def get_full_transcript(self) -> str:
