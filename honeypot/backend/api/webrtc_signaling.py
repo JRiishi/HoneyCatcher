@@ -262,18 +262,25 @@ async def transcription_chunk(sid, data):
     speaker = data.get('speaker', 'unknown')
     audio_size = len(data.get('audio', '')) // 1024  # Rough KB estimate
     
-    logger.info(f"📥 RECEIVED audio chunk from {speaker}: ~{audio_size}KB, room={room_id}, socket_id={sid}")
+    logger.info(f"📥 RECEIVED audio chunk from {speaker.upper()}: ~{audio_size}KB, room={room_id}, socket_id={sid}")
+    logger.info(f"   🔍 Data keys: {list(data.keys())}")
+    logger.info(f"   👤 Speaker field value: '{speaker}'")
     
     if not room_id:
-        logger.warning(f"⚠️ Received audio chunk from {speaker} but no room_id found")
+        logger.error(f"⚠️ Received audio chunk from {speaker} but no room_id found (sid={sid})")
+        logger.error(f"   Available rooms: {list(room_manager.rooms.keys())}")
+        logger.error(f"   SID to room mapping: {room_manager.sid_to_room}")
         return
     
     room = room_manager.get_room(room_id)
     if not room:
-        logger.warning(f"⚠️ Received audio chunk from {speaker} but room {room_id} not found")
+        logger.error(f"⚠️ Received audio chunk from {speaker} but room {room_id} not found")
+        logger.error(f"   Available rooms: {list(room_manager.rooms.keys())}")
         return
     
-    logger.debug(f"✅ Room {room_id} found, queuing for transcription...")
+    logger.info(f"✅ Room {room_id} found, queuing for transcription...")
+    logger.info(f"   🎭 Room has operator_sid: {room.operator_sid}")
+    logger.info(f"   🎭 Room has scammer_sid: {room.scammer_sid}")
     
     # Process transcription in background
     asyncio.create_task(process_transcription(room, data))
@@ -288,32 +295,43 @@ async def process_transcription(room: WebRTCRoom, data: dict):
         audio_base64 = data.get('audio')
         audio_format = data.get('format', 'webm')
         
+        logger.info(f"🔥 PROCESS_TRANSCRIPTION STARTED for {speaker.upper()}")
+        logger.info(f"   🎭 Room: {room.room_id}")
+        logger.info(f"   👤 Operator SID: {room.operator_sid}")
+        logger.info(f"   👤 Scammer SID: {room.scammer_sid}")
+        
         if not audio_base64:
             logger.warning(f"⚠️ {speaker}: No audio data in chunk")
             return
         
         # Decode audio
         audio_bytes = base64.b64decode(audio_base64)
-        logger.info(f"🎵 {speaker}: DECODED {len(audio_bytes)} bytes ({audio_format}) from base64")
+        logger.info(f"🎵 {speaker.upper()}: DECODED {len(audio_bytes)} bytes ({audio_format}) from base64")
         
         # Normalize audio chunk to WAV (required by Whisper)
         normalized = room.normalizer.normalize_chunk(audio_bytes, source_format=audio_format)
         
         # Skip if normalization failed (common for incomplete streaming chunks)
         if normalized is None:
-            logger.warning(f"⚠️ {speaker}: Normalization FAILED (incomplete or silent chunk)")
+            logger.warning(f"⚠️ {speaker.upper()}: Normalization FAILED (incomplete or silent chunk)")
             return
         
         # Get appropriate transcriber
-        transcriber = room.scammer_transcriber if speaker == "scammer" else room.operator_transcriber
+        logger.info(f"🎯 {speaker.upper()}: Selecting transcriber...")
+        if speaker == "scammer":
+            transcriber = room.scammer_transcriber
+            logger.info(f"   ✅ Using SCAMMER transcriber")
+        else:
+            transcriber = room.operator_transcriber
+            logger.info(f"   ✅ Using OPERATOR transcriber")
         
         # Add chunk and check if ready
         chunk_size_kb = len(normalized) / 1024
-        logger.info(f"📊 {speaker}: NORMALIZED to {chunk_size_kb:.1f}KB WAV, adding to transcriber buffer...")
+        logger.info(f"📊 {speaker.upper()}: NORMALIZED to {chunk_size_kb:.1f}KB WAV, adding to transcriber buffer...")
         is_ready = transcriber.add_chunk(normalized)
         
         if is_ready:
-            logger.info(f"🎙️ {speaker}: Buffer ready ({len(normalized)} bytes), STARTING TRANSCRIPTION...")
+            logger.info(f"🎙️ {speaker.upper()}: Buffer ready ({len(normalized)} bytes), STARTING TRANSCRIPTION...")
             result = await transcriber.transcribe_buffer()
             
             if result and result.get("text"):
@@ -321,7 +339,7 @@ async def process_transcription(room: WebRTCRoom, data: dict):
                 
                 # Skip empty or very short transcriptions
                 if not text or len(text) < 2:
-                    logger.warning(f"⚠️ {speaker}: Skipping empty transcription result")
+                    logger.warning(f"⚠️ {speaker.upper()}: Skipping empty transcription result")
                     return
                 
                 language = result.get("language", "en")
@@ -329,8 +347,8 @@ async def process_transcription(room: WebRTCRoom, data: dict):
                 
                 # Log language detection
                 lang_name = "English" if language == "en" else "Hindi" if language == "hi" else language
-                logger.info(f"✅ {speaker}: TRANSCRIBED in {lang_name} (confidence: {confidence:.2f})")
-                logger.info(f"💬 {speaker} said: \"{text[:100]}{'...' if len(text) > 100 else ''}\"")
+                logger.info(f"✅ {speaker.upper()}: TRANSCRIBED in {lang_name} (confidence: {confidence:.2f})")
+                logger.info(f"💬 {speaker.upper()} said: \"{text[:100]}{'...' if len(text) > 100 else ''}\"")
                 
                 transcription = {
                     "speaker": speaker,
@@ -342,12 +360,12 @@ async def process_transcription(room: WebRTCRoom, data: dict):
                 
                 # Add to transcript
                 room.transcript.append(transcription)
-                logger.info(f"📝 Added to room transcript (total: {len(room.transcript)} messages)")
+                logger.info(f"📝 Added {speaker.upper()} to room transcript (total: {len(room.transcript)} messages)")
                 
                 # Send transcription to BOTH operator and scammer
                 # (Each can see what they and the other person said)
                 await sio.emit('transcription', transcription, room=room.room_id)
-                logger.info(f"📤 EMITTED transcription to room {room.room_id}")
+                logger.info(f"📤 EMITTED {speaker.upper()} transcription to room {room.room_id}")
                 
                 # Save to database
                 try:
@@ -362,13 +380,17 @@ async def process_transcription(room: WebRTCRoom, data: dict):
                 
                 # If scammer speaking, extract intelligence and provide AI coaching
                 if speaker == "scammer" and room.operator_sid:
-                    logger.info(f"🧠 Queuing intelligence extraction for scammer speech...")
+                    logger.info(f"🧠 SCAMMER SPEECH DETECTED - Queuing intelligence extraction...")
                     asyncio.create_task(extract_intelligence(room, result["text"]))
                     asyncio.create_task(provide_ai_coaching(room))
+                elif speaker == "operator":
+                    logger.info(f"👮 OPERATOR SPEECH - No intelligence extraction needed")
+                else:
+                    logger.warning(f"⚠️ Unknown speaker '{speaker}' or missing operator_sid")
             else:
-                logger.warning(f"⚠️ {speaker}: Transcription returned no text")
+                logger.warning(f"⚠️ {speaker.upper()}: Transcription returned no text")
         else:
-            logger.debug(f"⏳ {speaker}: Buffer has more audio needed (not ready yet)")
+            logger.debug(f"⏳ {speaker.upper()}: Buffer has more audio needed (not ready yet)")
     
     except Exception as e:
         logger.error(f"❌ TRANSCRIPTION FAILED for {data.get('speaker', 'unknown')}: {e}", exc_info=True)

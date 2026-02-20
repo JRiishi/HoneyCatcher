@@ -78,6 +78,9 @@ class WebRTCService {
     this.role = role;
     this.isInitiator = (role === 'operator'); // Operator initiates WebRTC offer
     
+    console.log(`🎯 WebRTC connecting as: ${role.toUpperCase()} to room ${roomId}`);
+    console.log(`   ⚡ Initiator: ${this.isInitiator}`);
+    
     return new Promise((resolve, reject) => {
       try {
         // Connect to Socket.IO
@@ -93,6 +96,7 @@ class WebRTCService {
         
         this.socket.on('connected', (data) => {
           console.log('🔌 Socket connected:', data.sid);
+          console.log(`   👤 Joining as: ${role.toUpperCase()}`);
           
           // Join the room
           this.socket.emit('join_room', {
@@ -103,9 +107,12 @@ class WebRTCService {
         
         this.socket.on('joined_room', async (data) => {
           console.log('📞 Joined room:', data);
+          console.log(`   ✅ Confirmed role in room: ${this.role.toUpperCase()}`);
+          console.log(`   🎙️ About to request microphone for: ${this.role}`);
           
           // Start capturing local audio
           await this.startLocalStream();
+          console.log(`   ✅ ${this.role.toUpperCase()} microphone stream active`);
           
           // Start keepalive heartbeat
           this._startHeartbeat();
@@ -611,27 +618,32 @@ class WebRTCService {
           const reader = new FileReader();
           reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
-            console.log(`🎤 ${this.role} SENDING chunk: ${event.data.size} bytes to backend`);
+            console.log(`🎤 ${this.role.toUpperCase()} SENDING chunk: ${event.data.size} bytes to backend`);
             console.log(`   📍 Socket ID: ${this.socket.id}`);
+            console.log(`   👤 Speaker: ${this.role}`);
             console.log(`   🔗 Room: ${this.roomId}`);
             console.log(`   ⏱️ Timestamp: ${new Date().toISOString()}`);
             
-            this.socket.emit('transcription_chunk', {
+            const chunkData = {
               audio: base64,
               format: 'webm',
-              speaker: this.role || 'operator',
+              speaker: this.role,  // CRITICAL: Must match 'operator' or 'scammer'
               room_id: this.roomId
-            }, (ack) => {
-              console.log(`✅ ${this.role} chunk ACK received from server`);
+            };
+            
+            console.log(`   📦 Emitting transcription_chunk with speaker='${chunkData.speaker}'`);
+            
+            this.socket.emit('transcription_chunk', chunkData, (ack) => {
+              console.log(`✅ ${this.role.toUpperCase()} chunk ACK received from server`);
             });
           };
           reader.readAsDataURL(event.data);
         } else {
           if (!this.socket?.connected) {
-            console.warn(`⚠️ ${this.role} skipped chunk: socket disconnected`);
+            console.warn(`⚠️ ${this.role.toUpperCase()} skipped chunk: socket disconnected`);
           }
           if (!(event.data.size > 0)) {
-            console.warn(`⚠️ ${this.role} skipped empty chunk`);
+            console.warn(`⚠️ ${this.role.toUpperCase()} skipped empty chunk`);
           }
         }
       };
@@ -700,17 +712,22 @@ class WebRTCService {
           const reader = new FileReader();
           reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
-            console.log(`🔊 ${this.role} sending remote audio chunk: ${event.data.size} bytes as ${remoteSpeaker}`);
+            console.log(`🔊 ${this.role.toUpperCase()} RECEIVING remote audio chunk: ${event.data.size} bytes`);
+            console.log(`   👤 Identified as: ${remoteSpeaker.toUpperCase()} (other peer)`);
+            console.log(`   📍 Sending to backend for transcription...`);
+            
             this.socket.emit('transcription_chunk', {
               audio: base64,
               format: 'webm',
               speaker: remoteSpeaker,
               room_id: this.roomId
+            }, (ack) => {
+              console.log(`✅ ${remoteSpeaker.toUpperCase()} remote chunk ACK received`);
             });
           };
           reader.readAsDataURL(event.data);
         } else {
-          console.warn(`⚠️ ${this.role} remote: skipped empty chunk or socket disconnected`);
+          console.warn(`⚠️ ${this.role.toUpperCase()} remote: skipped empty chunk or socket disconnected`);
         }
       };
       
