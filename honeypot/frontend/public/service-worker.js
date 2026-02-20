@@ -59,6 +59,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Skip caching for non-GET requests
+  if (request.method !== 'GET') {
+    return;
+  }
+
   event.respondWith(
     caches.open(RUNTIME_CACHE).then(cache => {
       return fetch(request)

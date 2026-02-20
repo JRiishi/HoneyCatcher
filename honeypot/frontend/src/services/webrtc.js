@@ -120,6 +120,9 @@ class WebRTCService {
           // Create peer connection immediately if peer is already present
           if (!data.waiting_for_peer) {
             console.log('🔗 Peer already in room, creating peer connection...');
+            
+            // CRITICAL FIX: Add tracks BEFORE creating offer
+            // createPeerConnection() now adds tracks immediately if localStream exists
             this.createPeerConnection();
             
             // If we're initiator (operator), create offer
@@ -171,6 +174,22 @@ class WebRTCService {
     this.socket.on('webrtc_offer', async (data) => {
       console.log('📥 Received WebRTC offer');
       
+      // CRITICAL FIX: Ensure local stream is ready before creating answer
+      // Wait for localStream if getUserMedia is still pending
+      if (!this.localStream && !this.localStreamLoading) {
+        console.warn('⚠️ Offer received but local stream not requested yet - starting stream');
+        await this.startLocalStream();
+      } else if (this.localStreamLoading) {
+        console.log('⏳ Local stream loading... waiting before handling offer');
+        // Simple poll to wait for stream
+        let retries = 0;
+        while (!this.localStream && retries < 20) {
+          await new Promise(r => setTimeout(r, 200));
+          retries++;
+        }
+        if (!this.localStream) console.warn('⚠️ Timed out waiting for local stream, proceeding anyway');
+      }
+
       // Create peer connection if not exists
       if (!this.peerConnection) {
         console.log('🔗 Creating peer connection to handle offer...');
@@ -237,9 +256,13 @@ class WebRTCService {
    */
   async startLocalStream() {
     try {
+      this.localStreamLoading = true;
+      console.log(`🎤 startLocalStream: Request initiated`);
+
       // Check if we already have a local stream
       if (this.localStream && this.localStream.active) {
         console.log('✅ Local stream already active, reusing...');
+        this.localStreamLoading = false;
         return this.localStream;
       }
       
@@ -247,34 +270,37 @@ class WebRTCService {
       
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,   // Enable for production (prevents feedback)
-          noiseSuppression: true,   // Enable for production (reduces background noise)
-          autoGainControl: true,     // Normalize volume levels
-          sampleRate: 48000,         // Higher quality audio
-          channelCount: 1,           // Mono for voice
-          latency: 0.01,             // Low latency for real-time
-          volume: 1.0
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 48000,
+          channelCount: 1,
         },
         video: false
       });
       
       console.log(`✅ ${this.role} microphone access granted`);
+      this.localStreamLoading = false;
       console.log('📊 Local stream tracks:', this.localStream.getTracks().map(t => `${t.kind}: ${t.enabled} (${t.readyState})`));
       
-      // Verify audio track is active
-      const audioTracks = this.localStream.getAudioTracks();
-      if (audioTracks.length === 0) {
-        throw new Error('No audio tracks available');
+      // CRITICAL FIX: Ensure tracks are added to existing peer connection
+      if (this.peerConnection) {
+        this.localStream.getTracks().forEach(track => {
+          // Check if sender already exists
+          const senders = this.peerConnection.getSenders();
+          const exists = senders.some(s => s.track === track);
+          
+          if (!exists) {
+            console.log('🎵 Adding new local track to EXISTING peer connection:', track.kind);
+            this.peerConnection.addTrack(track, this.localStream);
+          }
+        });
       }
-      
-      console.log(`🔊 ${this.role} has ${audioTracks.length} audio track(s) ready`);
-      
-      // Start sending audio chunks to backend for transcription
-      this._startLocalAudioCapture();
       
       return this.localStream;
       
     } catch (error) {
+      this.localStreamLoading = false;
       console.error(`❌ Failed to get microphone for ${this.role}:`, error);
       
       // Provide user-friendly error messages
@@ -340,21 +366,28 @@ class WebRTCService {
       console.log('🎵 Received remote track:', event.track.kind, 'readyState:', event.track.readyState);
       console.log('📦 Streams in event:', event.streams.length);
       
+      // CRITICAL FIX: Handle cases where e.streams is empty
+      const stream = event.streams?.[0] ?? new MediaStream([event.track]);
+      
+      this.remoteStream = stream;
+      
       if (!this.remoteStream) {
-        this.remoteStream = new MediaStream();
-        console.log('🆕 Created new remote stream');
+        console.warn('⚠️ No remote stream found even after fallback!');
+        return;
       }
+      
+      console.log(`✅ Remote stream active with ${this.remoteStream.getTracks().length} tracks`);
       
       event.track.onended = () => {
         console.log('⚠️ Remote track ended:', event.track.kind);
       };
       
-      this.remoteStream.addTrack(event.track);
-      console.log(`✅ Remote stream now has ${this.remoteStream.getTracks().length} tracks`);
-      
+      // Always call the callback if registered
       if (this.onRemoteStream) {
-        console.log('📢 Calling onRemoteStream callback');
+        console.log('📢 Calling onRemoteStream callback with VALID stream');
         this.onRemoteStream(this.remoteStream);
+      } else {
+        console.warn('⚠️ onRemoteStream callback NOT registered - UI wont update!');
       }
       
       // Start capturing remote audio for backend transcription

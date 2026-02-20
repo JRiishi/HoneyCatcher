@@ -37,6 +37,13 @@ export const useWebRTC = (roomId, role = 'operator') => {
           console.log('🎵 Remote stream received in hook');
           console.log('📊 Stream tracks:', stream.getTracks().map(t => `${t.kind}: ${t.enabled}`));
           setRemoteStream(stream);
+
+          // Force update output even if ref logic handles it
+          if (remoteAudioRef.current) {
+            console.log('🔊 Manually setting srcObject on stream update');
+            remoteAudioRef.current.srcObject = stream;
+            remoteAudioRef.current.play().catch(e => console.error('Play error on stream update:', e));
+          }
         };
         
         webrtcRef.current.onTranscription = (data) => {
@@ -199,8 +206,15 @@ export const useWebRTC = (roomId, role = 'operator') => {
   useEffect(() => {
     if (remoteStream && remoteAudioRef.current) {
       console.log('🔊 Setting up remote audio playback');
-      console.log('📊 Remote stream tracks:', remoteStream.getTracks().map(t => `${t.kind}: ${t.enabled} (${t.readyState})`));
-      
+      // Fix for one-way audio: Explicitly log tracks
+      const audioTracks = remoteStream.getAudioTracks();
+      console.log(`📊 Remote stream checks: ${audioTracks.length} audio tracks found`);
+      if (audioTracks.length > 0) {
+        console.log(`   First track enabled: ${audioTracks[0].enabled}, state: ${audioTracks[0].readyState}`);
+      } else {
+        console.warn('⚠️ No audio tracks in remote stream!');
+      }
+
       remoteAudioRef.current.srcObject = remoteStream;
       
       // Ensure audio element is properly configured
@@ -210,14 +224,17 @@ export const useWebRTC = (roomId, role = 'operator') => {
       remoteAudioRef.current.volume = 1.0;
       
       // Try to play
-      remoteAudioRef.current.play()
-        .then(() => {
+      const attemptPlay = async () => {
+        try {
+          await remoteAudioRef.current.play();
           console.log('✅ Remote audio playing successfully');
-        })
-        .catch(e => {
-          console.error('❌ Failed to play remote audio:', e);
-          console.log('ℹ️ User interaction may be required to play audio');
-        });
+        } catch (e) {
+            console.error('❌ Failed to play remote audio:', e);
+            console.log('ℹ️ User interaction may be required to play audio');
+        }
+      };
+      
+      attemptPlay();
       
       // Monitor track events
       remoteStream.getAudioTracks().forEach(track => {
