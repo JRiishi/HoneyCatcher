@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Agentic Honey-Pot"
     DEBUG: bool = True
     API_SECRET_KEY: str = "unsafe-secret-key-change-me"
+    CORS_ORIGINS: str = "*"  # Comma-separated list of allowed origins for production
     
     # Database
     # Supporting both MONGO_URI and MONGODB_URI (user's version)
