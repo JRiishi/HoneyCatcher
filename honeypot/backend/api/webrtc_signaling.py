@@ -48,6 +48,11 @@ class WebRTCRoom:
         self.tactics = []
         self.start_time = datetime.utcnow()
         self.is_active = True
+        # AI takeover mode
+        self.ai_mode: str = "operator"  # "operator" or "ai_only"
+        self.ai_loop_task: Optional[asyncio.Task] = None
+        self.ai_history: list = []
+        self.scammer_message_queue: asyncio.Queue = asyncio.Queue()
     
     def has_both_peers(self) -> bool:
         return self.operator_sid is not None and self.scammer_sid is not None
@@ -384,7 +389,12 @@ async def process_transcription(room: WebRTCRoom, data: dict):
                 if speaker == "scammer" and room.operator_sid:
                     logger.info(f"🧠 SCAMMER SPEECH DETECTED - Queuing intelligence extraction...")
                     asyncio.create_task(extract_intelligence(room, result["text"]))
-                    asyncio.create_task(provide_ai_coaching(room))
+                    # Queue text for AI response loop if AI mode is active
+                    if room.ai_mode == "ai_only":
+                        await room.scammer_message_queue.put(text)
+                        logger.info(f"🤖 Queued scammer text for AI response loop")
+                    else:
+                        asyncio.create_task(provide_ai_coaching(room))
                 elif speaker == "operator":
                     logger.info(f"👮 OPERATOR SPEECH - No intelligence extraction needed")
                 else:
@@ -484,6 +494,160 @@ async def scan_urls_and_notify(room: WebRTCRoom, urls: list):
         
     except Exception as e:
         logger.error(f"❌ URL scanning error: {e}", exc_info=True)
+
+
+@sio.event
+async def set_ai_mode(sid, data):
+    """
+    Switch AI takeover mode mid-call.
+
+    Args:
+        data: {"room_id": "call-xxx", "mode": "ai_only"|"operator"}
+    """
+    room_id = data.get('room_id') or room_manager.sid_to_room.get(sid)
+    mode = data.get('mode', 'operator')
+
+    if mode not in ("ai_only", "operator"):
+        await sio.emit('ai_error', {'error': f'Unknown mode: {mode}'}, room=sid)
+        return
+
+    room = room_manager.get_room(room_id)
+    if not room:
+        await sio.emit('ai_error', {'error': 'Room not found'}, room=sid)
+        return
+
+    logger.info(f"🤖 set_ai_mode → {mode} for room {room_id} (sid={sid})")
+    room.ai_mode = mode
+
+    # Cancel any running AI loop
+    if room.ai_loop_task and not room.ai_loop_task.done():
+        room.ai_loop_task.cancel()
+        room.ai_loop_task = None
+
+    if mode == "ai_only":
+        # Send filler phrase immediately to avoid silence on handoff
+        asyncio.create_task(_send_ai_filler(room))
+        # Start the AI response loop
+        room.ai_loop_task = asyncio.create_task(_ai_response_loop(room))
+
+    # Notify operator of confirmed mode
+    if room.operator_sid:
+        await sio.emit('ai_mode_changed', {'mode': mode}, room=room.operator_sid)
+
+
+async def _send_ai_filler(room: WebRTCRoom):
+    """Emit a filler phrase via TTS so operator hears something immediately on handoff."""
+    try:
+        import base64
+        from services.elevenlabs_service import elevenlabs_service
+
+        filler_text = "Hmm, ek second..."
+        tts_result = await elevenlabs_service.synthesize(
+            text=filler_text,
+            session_id=room.room_id
+        )
+        if tts_result and tts_result.get("audio_path"):
+            with open(tts_result["audio_path"], "rb") as f:
+                audio_b64 = base64.b64encode(f.read()).decode()
+            if room.operator_sid:
+                await sio.emit('audio_response', {
+                    "type": "audio_response",
+                    "audio": audio_b64,
+                    "format": "mp3",
+                    "text": filler_text
+                }, room=room.operator_sid)
+                logger.info("🤖 Filler audio sent to operator")
+    except Exception as e:
+        logger.error(f"Filler TTS error: {e}", exc_info=True)
+
+
+async def _ai_response_loop(room: WebRTCRoom):
+    """Background task: consume scammer messages, generate AI response, emit audio."""
+    try:
+        import base64
+        from services.elevenlabs_service import elevenlabs_service
+        from features.live_takeover.takeover_agent import takeover_agent
+
+        logger.info(f"🤖 AI response loop STARTED for room {room.room_id}")
+
+        while room.ai_mode == "ai_only" and room.is_active:
+            # Wait for next scammer message
+            try:
+                scammer_text = await asyncio.wait_for(
+                    room.scammer_message_queue.get(),
+                    timeout=30.0
+                )
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                return
+
+            try:
+                # Determine language from recent transcript
+                recent_lang = "en"
+                for entry in reversed(room.transcript):
+                    if entry.get("speaker") == "scammer" and entry.get("language"):
+                        recent_lang = entry["language"]
+                        break
+
+                # Run takeover agent
+                result = await takeover_agent.run(
+                    scammer_text=scammer_text,
+                    history=room.ai_history,
+                    mode="ai_takeover",
+                    language=recent_lang
+                )
+
+                ai_text = result.get("ai_response", "").strip()
+                if not ai_text:
+                    logger.warning("🤖 Agent returned empty response, skipping")
+                    continue
+
+                logger.info(f"🤖 AI response: \"{ai_text[:80]}{'...' if len(ai_text) > 80 else ''}\"")
+
+                # Update history (keep last 10 turns to avoid bloat)
+                room.ai_history.append({"role": "scammer", "content": scammer_text})
+                room.ai_history.append({"role": "agent", "content": ai_text})
+                if len(room.ai_history) > 20:
+                    room.ai_history = room.ai_history[-20:]
+
+                # TTS → base64
+                tts_result = await elevenlabs_service.synthesize(
+                    text=ai_text,
+                    session_id=room.room_id
+                )
+
+                if tts_result and tts_result.get("audio_path"):
+                    with open(tts_result["audio_path"], "rb") as f:
+                        audio_b64 = base64.b64encode(f.read()).decode()
+
+                    if room.operator_sid:
+                        await sio.emit('audio_response', {
+                            "type": "audio_response",
+                            "audio": audio_b64,
+                            "format": "mp3",
+                            "text": ai_text
+                        }, room=room.operator_sid)
+                        logger.info(f"📤 AI audio_response emitted to operator")
+
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.error(f"❌ AI response loop error: {e}", exc_info=True)
+                # Revert to operator mode and notify
+                room.ai_mode = "operator"
+                if room.operator_sid:
+                    await sio.emit('ai_error', {
+                        "error": str(e),
+                        "text": "AI response failed. Switching back to operator mode."
+                    }, room=room.operator_sid)
+                    await sio.emit('ai_mode_changed', {'mode': 'operator'}, room=room.operator_sid)
+                return
+
+    except asyncio.CancelledError:
+        logger.info(f"🤖 AI response loop cancelled for room {room.room_id}")
+    except Exception as e:
+        logger.error(f"❌ AI response loop outer error: {e}", exc_info=True)
 
 
 async def provide_ai_coaching(room: WebRTCRoom):

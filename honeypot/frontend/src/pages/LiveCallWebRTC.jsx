@@ -42,7 +42,10 @@ const LiveCallWebRTC = () => {
     remoteAudioRef,
     toggleMute,
     connect,
-    disconnect
+    disconnect,
+    aiMode,
+    aiError,
+    setAiMode
   } = useWebRTC(callId, role);
 
   /* ─────────────────────────────────────────────
@@ -376,8 +379,40 @@ const LiveCallWebRTC = () => {
               </button>
             </div>
 
-            {/* Divider */}
-            <div className="border-t border-white/10 my-4"></div>
+            {/* AI Takeover Toggle */}
+            {isPeerConnected && (
+              <div className="space-y-2">
+                <div className="border-t border-white/10 pt-4">
+                  <div className="flex justify-between text-sm text-gray-300 mb-2">
+                    <span>🤖 AI Takeover</span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      aiMode === 'ai_only'
+                        ? 'bg-purple-500/30 text-purple-200'
+                        : 'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {aiMode === 'ai_only' ? 'AI Active' : 'Operator'}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={() => setAiMode(aiMode === 'ai_only' ? 'operator' : 'ai_only')}
+                    className={`w-full py-3 rounded font-semibold flex justify-center items-center gap-2 transition-all ${
+                      aiMode === 'ai_only'
+                        ? 'bg-purple-600 hover:bg-purple-700 ring-2 ring-purple-400 text-white'
+                        : 'bg-purple-500/30 hover:bg-purple-500/50 text-purple-200'
+                    }`}
+                  >
+                    {aiMode === 'ai_only' ? '🎙️ Take Back Control' : '🤖 Hand Off to AI'}
+                  </button>
+
+                  {aiError && (
+                    <div className="mt-2 p-2 bg-red-500/20 border border-red-500/40 rounded text-xs text-red-300">
+                      ⚠️ {aiError}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Remote Audio (Speaker) Control */}
             <div className="space-y-3">
