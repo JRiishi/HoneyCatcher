@@ -23,6 +23,7 @@ except ImportError:
     GTTS_AVAILABLE = False
 
 from config import settings
+from services.elevenlabs_service import elevenlabs_service
 
 logger = logging.getLogger("tts_service")
 
@@ -107,7 +108,12 @@ class TTSService:
             else:
                 output_file = self.output_path / filename
             
-            # Try Piper first (if available)
+            # Try ElevenLabs first (Primary high-quality TTS)
+            elevenlabs_result = await elevenlabs_service.synthesize(text, session_id=session_id)
+            if elevenlabs_result and "error" not in elevenlabs_result:
+                return elevenlabs_result
+                
+            # Try Piper next (Local fallback)
             if self.engine_type == 'piper':
                 success = self._synthesize_piper(text, str(output_file), language)
                 if success:

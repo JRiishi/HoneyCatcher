@@ -12,7 +12,7 @@ const SessionViewScreen = ({ route, navigation }) => {
   const { sessionId } = route.params;
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('messages'); // messages | intel | details
+  const [tab, setTab] = useState('messages'); // messages | intel | sms | details
 
   useEffect(() => {
     const load = async () => {
@@ -99,14 +99,14 @@ const SessionViewScreen = ({ route, navigation }) => {
 
       {/* Tabs */}
       <View style={styles.tabs}>
-        {['messages', 'intel', 'details'].map(t => (
+        {['messages', 'intel', 'sms', 'details'].map(t => (
           <TouchableOpacity
             key={t}
             style={[styles.tab, tab === t && styles.tabActive]}
             onPress={() => setTab(t)}
           >
             <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
-              {t === 'messages' ? '💬 Messages' : t === 'intel' ? '🧠 Intel' : '📋 Details'}
+              {t === 'messages' ? '💬 Messages' : t === 'intel' ? '🧠 Intel' : t === 'sms' ? '📱 SMS' : '📋 Details'}
             </Text>
           </TouchableOpacity>
         ))}
@@ -123,6 +123,30 @@ const SessionViewScreen = ({ route, navigation }) => {
         )}
 
         {tab === 'intel' && <IntelligencePanel intelligence={intel} />}
+
+        {tab === 'sms' && (
+          <View style={{ paddingTop: 8 }}>
+            {!session.sms_evidence || session.sms_evidence.length === 0 ? (
+              <Text style={styles.emptyText}>No SMS evidence captured for this session.</Text>
+            ) : (
+              session.sms_evidence.map((sms, i) => (
+                <GlassCard key={i} style={{ marginBottom: 12, padding: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ color: '#d1d5db', fontSize: 13, fontWeight: '700' }}>{sms.address}</Text>
+                    <Text style={{ color: '#6b7280', fontSize: 11 }}>
+                      {new Date(sms.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </View>
+                  <Text style={{ color: '#9ca3af', fontSize: 13, lineHeight: 18 }}>{sms.body}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                    <Text style={{ color: '#4b5563', fontSize: 10 }}>Type: {sms.type === 1 ? 'Inbox' : 'Sent'}</Text>
+                    <Text style={{ color: '#4b5563', fontSize: 10 }}>{new Date(sms.date).toLocaleDateString()}</Text>
+                  </View>
+                </GlassCard>
+              ))
+            )}
+          </View>
+        )}
 
         {tab === 'details' && (
           <GlassCard>

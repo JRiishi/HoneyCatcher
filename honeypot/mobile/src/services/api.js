@@ -23,7 +23,7 @@ export const isAuthenticated = async () => !!(await getAccessToken());
 const apiFetch = async (endpoint, options = {}) => {
   const url = `${BASE_URL}${endpoint}`;
   const token = await AsyncStorage.getItem(TOKEN_KEY);
-  
+
   const headers = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : { 'x-api-key': API_KEY }),
@@ -31,7 +31,7 @@ const apiFetch = async (endpoint, options = {}) => {
   };
 
   const response = await fetch(url, { ...options, headers, timeout: 15000 });
-  
+
   if (response.status === 401 && token) {
     // Try refresh
     const refreshToken = await AsyncStorage.getItem(REFRESH_KEY);
@@ -68,11 +68,11 @@ const api = {
     const params = options.params ? '?' + new URLSearchParams(options.params).toString() : '';
     return apiFetch(endpoint + params, { method: 'GET', ...options });
   },
-  post: (endpoint, data, options = {}) => 
+  post: (endpoint, data, options = {}) =>
     apiFetch(endpoint, { method: 'POST', body: JSON.stringify(data), ...options }),
-  put: (endpoint, data, options = {}) => 
+  put: (endpoint, data, options = {}) =>
     apiFetch(endpoint, { method: 'PUT', body: JSON.stringify(data), ...options }),
-  delete: (endpoint, options = {}) => 
+  delete: (endpoint, options = {}) =>
     apiFetch(endpoint, { method: 'DELETE', ...options }),
   postForm: async (endpoint, formData) => {
     const token = await AsyncStorage.getItem(TOKEN_KEY);
@@ -147,6 +147,20 @@ export const simulateScamMessage = async (sessionId, text) => {
     return res;
   } catch (e) {
     console.warn('simulateScamMessage error:', e.message);
+    return null;
+  }
+};
+
+export const extractSmsEvidence = async (sessionId, phoneNumber, messages) => {
+  try {
+    const res = await api.post(`/session/${sessionId}/sms`, {
+      session_id: sessionId,
+      phone_number: phoneNumber,
+      messages: messages
+    });
+    return res;
+  } catch (e) {
+    console.warn('extractSmsEvidence error:', e.message);
     return null;
   }
 };

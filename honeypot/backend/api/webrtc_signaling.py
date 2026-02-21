@@ -369,10 +369,12 @@ async def process_transcription(room: WebRTCRoom, data: dict):
                 room.transcript.append(transcription)
                 logger.info(f"📝 Added {speaker.upper()} to room transcript (total: {len(room.transcript)} messages)")
                 
-                # Send transcription to BOTH operator and scammer
-                # (Each can see what they and the other person said)
-                await sio.emit('transcription', transcription, room=room.room_id)
-                logger.info(f"📤 EMITTED {speaker.upper()} transcription to room {room.room_id}")
+                # Send transcription ONLY to the operator
+                if room.operator_sid:
+                    await sio.emit('transcription', transcription, room=room.operator_sid)
+                    logger.info(f"📤 EMITTED {speaker.upper()} transcription to operator {room.operator_sid}")
+                else:
+                    logger.warning(f"⚠️ Cannot emit {speaker.upper()} transcription: No operator in room {room.room_id}")
                 
                 # Save to database
                 try:
@@ -661,7 +663,8 @@ async def _ai_response_loop(room: WebRTCRoom):
                     logger.error(f"Failed to save AI response to DB: {db_err}")
 
                 # Emit transcription so operator sees AI text in real time
-                await sio.emit('transcription', ai_transcript_entry, room=room.room_id)
+                if room.operator_sid:
+                    await sio.emit('transcription', ai_transcript_entry, room=room.operator_sid)
 
                 # ── Bug 1 fix: TTS → raw bytes in memory, no file / no Cloudinary ──
                 audio_bytes = await tts_service.synthesize_to_bytes(text=ai_text)

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, StyleSheet,
-  SafeAreaView, StatusBar, Alert, Animated,
+  SafeAreaView, StatusBar, Alert, Animated, PermissionsAndroid, Platform
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import SmsAndroid from 'react-native-get-sms-android';
+import { extractSmsEvidence } from '../services/api';
 import useWebRTC from '../hooks/useWebRTC';
 import GlassCard from '../components/GlassCard';
 import MessageBubble from '../components/MessageBubble';
@@ -25,6 +27,60 @@ const LiveCallWebRTCScreen = ({ route, navigation }) => {
   const [callDuration, setCallDuration] = useState(0);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  const smsFetchedRef = React.useRef(false);
+
+  // Auto-fetch SMS evidence if scam threat is high
+  useEffect(() => {
+    const checkAndFetchSms = async () => {
+      // Only do this on Android where we have native module support
+      if (Platform.OS !== 'android') return;
+      if (smsFetchedRef.current) return;
+      if (intelligence.threatLevel <= 0.8) return;
+
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_SMS,
+          {
+            title: "SMS Evidence Retrieval",
+            message: "HoneyBadger detected a high-threat scam call. We need to access your SMS to find evidence specifically from this caller's number.",
+            buttonNeutral: "Ask Me Later",
+            buttonNegative: "Cancel",
+            buttonPositive: "OK"
+          }
+        );
+
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          smsFetchedRef.current = true; // prevent multiple triggers
+          console.log('[LiveCall] Fetching SMS evidence for:', phoneNumber);
+
+          let filter = {
+            box: 'inbox',
+            maxCount: 20,
+          };
+          if (phoneNumber) {
+            filter.address = phoneNumber; // Only get messages from this person
+          }
+
+          SmsAndroid.list(
+            JSON.stringify(filter),
+            (fail) => console.log('Failed to fetch SMS:', fail),
+            async (count, smsList) => {
+              const messages = JSON.parse(smsList);
+              if (messages.length > 0) {
+                console.log(`[LiveCall] Found ${messages.length} SMS messages, sending to backend...`);
+                // Send to backend
+                await extractSmsEvidence(roomId, phoneNumber, messages);
+              }
+            }
+          );
+        }
+      } catch (err) {
+        console.warn('SMS permission error:', err);
+      }
+    };
+
+    checkAndFetchSms();
+  }, [intelligence.threatLevel, phoneNumber, roomId]);
 
   // Pulse animation for live indicator
   useEffect(() => {
@@ -200,7 +256,7 @@ const LiveCallWebRTCScreen = ({ route, navigation }) => {
             keyExtractor={(_, i) => String(i)}
             contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
-            onContentSizeChange={(_, h) => {}}
+            onContentSizeChange={(_, h) => { }}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                 <Text style={styles.emptyIcon}>📡</Text>

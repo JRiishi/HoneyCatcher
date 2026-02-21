@@ -5,7 +5,7 @@ import Navbar from '../components/Navbar.jsx';
 import GlassCard from '../components/GlassCard.jsx';
 import MessageBubble from '../components/MessageBubble.jsx';
 import IntelligencePanel from '../components/IntelligencePanel.jsx';
-import { AlertTriangle, Lock } from 'lucide-react';
+import { AlertTriangle, Lock, MessageSquare } from 'lucide-react';
 
 const SessionView = () => {
     const { id } = useParams();
@@ -63,11 +63,41 @@ const SessionView = () => {
                 </div>
 
                 {/* Intelligence Column */}
-                <div className="w-[400px]">
+                <div className="w-[400px] flex flex-col gap-4 overflow-y-auto pb-6">
                     <IntelligencePanel 
                         intelligence={session.extracted_intelligence} 
                         enableTesting={true}
                     />
+
+                    {/* SMS Evidence Panel */}
+                    {session.sms_evidence && session.sms_evidence.length > 0 && (
+                        <GlassCard className="p-4 bg-surface/30">
+                            <div className="flex items-center gap-2 mb-4">
+                                <MessageSquare className="text-purple-400" size={18} />
+                                <h3 className="font-semibold text-white">Extracted SMS Evidence</h3>
+                                <span className="ml-auto text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full">
+                                    {session.sms_evidence.length} Msgs
+                                </span>
+                            </div>
+                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                {session.sms_evidence.map((sms, i) => (
+                                    <div key={i} className="bg-black/40 rounded-lg p-3 border border-white/5">
+                                        <div className="flex justify-between items-start mb-1">
+                                            <span className="text-sm font-medium text-gray-200">{sms.address}</span>
+                                            <span className="text-xs text-gray-500">
+                                                {new Date(sms.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-gray-300 break-words">{sms.body}</p>
+                                        <div className="mt-2 text-[10px] text-gray-500 flex justify-between">
+                                            <span>Type: {sms.type === 1 ? 'Inbox' : 'Sent'}</span>
+                                            <span>{new Date(sms.date).toLocaleDateString()}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </GlassCard>
+                    )}
                 </div>
             </div>
         </div>
