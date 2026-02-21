@@ -109,9 +109,7 @@ class TTSService:
                 output_file = self.output_path / filename
             
             # Try ElevenLabs first (Primary high-quality TTS)
-            elevenlabs_result = await elevenlabs_service.synthesize(text, session_id=session_id)
-            if elevenlabs_result and "error" not in elevenlabs_result:
-                return elevenlabs_result
+             
                 
             # Try Piper next (Local fallback)
             if self.engine_type == 'piper':
